@@ -3,49 +3,49 @@
     {
       "session": 0,
       "num_classes_seen": 60,
-      "accuracy": 0.7225
+      "accuracy": 0.7346666666666667
     },
     {
       "session": 1,
       "num_classes_seen": 65,
-      "accuracy": 0.6753846153846154
+      "accuracy": 0.6703076923076923
     },
     {
       "session": 2,
       "num_classes_seen": 70,
-      "accuracy": 0.6331428571428571
+      "accuracy": 0.6091428571428571
     },
     {
       "session": 3,
       "num_classes_seen": 75,
-      "accuracy": 0.5936
+      "accuracy": 0.5666666666666667
     },
     {
       "session": 4,
       "num_classes_seen": 80,
-      "accuracy": 0.5605
+      "accuracy": 0.527625
     },
     {
       "session": 5,
       "num_classes_seen": 85,
-      "accuracy": 0.5285882352941177
+      "accuracy": 0.49164705882352944
     },
     {
       "session": 6,
       "num_classes_seen": 90,
-      "accuracy": 0.5025555555555555
+      "accuracy": 0.46366666666666667
     },
     {
       "session": 7,
       "num_classes_seen": 95,
-      "accuracy": 0.47989473684210526
+      "accuracy": 0.4405263157894737
     },
     {
       "session": 8,
       "num_classes_seen": 100,
-      "accuracy": 0.4607
+      "accuracy": 0.4203
     }
   ],
-  "PD": 26.180000000000003,
-  "avg_accuracy": 57.298511113547235
+  "PD": 31.436666666666667,
+  "avg_accuracy": 54.717210267372806
 }

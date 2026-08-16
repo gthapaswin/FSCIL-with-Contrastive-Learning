@@ -1,0 +1,96 @@
+Using device: mps
+Base classes (60): [1, 2, 7, 8, 9, 10, 12, 15, 16, 18, 21, 22, 23, 26, 30, 32, 33, 34, 36, 37, 38, 39, 40, 41, 42, 44, 45, 46, 47, 48, 49, 50, 51, 52, 55, 56, 58, 59, 60, 61, 62, 63, 65, 66, 68, 70, 72, 73, 74, 76, 78, 80, 83, 85, 87, 91, 92, 96, 98, 99]
+Incremental sessions (8 x 5-way): [[5, 6, 24, 67, 82], [19, 20, 43, 79, 90], [0, 53, 57, 93, 95], [25, 71, 77, 84, 89], [27, 29, 64, 88, 97], [4, 11, 54, 69, 75], [13, 17, 28, 31, 86], [3, 14, 35, 81, 94]]
+
+=== Phase A: backbone pretraining on 60 base classes for 30 epochs ===
+Mixup/CutMix enabled (randomly applied per batch)
+[Backbone] epoch 001/30 | train_loss 3.8532 | val_loss 3.4619 | train_acc 9.18% | val_acc 15.83% * | 65.5s
+[Backbone] epoch 002/30 | train_loss 3.5696 | val_loss 3.1463 | train_acc 15.75% | val_acc 23.05% * | 64.7s
+[Backbone] epoch 003/30 | train_loss 3.4350 | val_loss 3.0354 | train_acc 19.91% | val_acc 26.60% * | 64.4s
+[Backbone] epoch 004/30 | train_loss 3.2585 | val_loss 2.8423 | train_acc 25.21% | val_acc 31.52% * | 66.0s
+[Backbone] epoch 005/30 | train_loss 3.1678 | val_loss 2.6895 | train_acc 28.56% | val_acc 36.28% * | 64.4s
+[Backbone] epoch 006/30 | train_loss 3.0429 | val_loss 2.6070 | train_acc 33.21% | val_acc 39.02% * | 64.4s
+[Backbone] epoch 007/30 | train_loss 2.9483 | val_loss 2.4370 | train_acc 36.43% | val_acc 44.25% * | 64.5s
+[Backbone] epoch 008/30 | train_loss 2.8578 | val_loss 2.4321 | train_acc 40.01% | val_acc 43.40% | 64.4s
+[Backbone] epoch 009/30 | train_loss 2.7819 | val_loss 2.4709 | train_acc 42.32% | val_acc 44.05% | 64.3s
+[Backbone] epoch 010/30 | train_loss 2.6770 | val_loss 2.2192 | train_acc 45.29% | val_acc 50.93% * | 64.4s
+[Backbone] epoch 011/30 | train_loss 2.6901 | val_loss 2.1479 | train_acc 45.77% | val_acc 53.23% * | 64.4s
+[Backbone] epoch 012/30 | train_loss 2.6000 | val_loss 2.0763 | train_acc 48.01% | val_acc 55.92% * | 64.4s
+[Backbone] epoch 013/30 | train_loss 2.6053 | val_loss 2.0672 | train_acc 49.36% | val_acc 55.58% | 64.4s
+[Backbone] epoch 014/30 | train_loss 2.5836 | val_loss 1.9343 | train_acc 50.10% | val_acc 58.87% * | 64.4s
+[Backbone] epoch 015/30 | train_loss 2.5381 | val_loss 1.9604 | train_acc 52.30% | val_acc 60.52% * | 64.5s
+[Backbone] epoch 016/30 | train_loss 2.4975 | val_loss 2.0044 | train_acc 54.27% | val_acc 58.03% | 64.3s
+[Backbone] epoch 017/30 | train_loss 2.4548 | val_loss 1.8818 | train_acc 54.31% | val_acc 61.62% * | 64.5s
+[Backbone] epoch 018/30 | train_loss 2.3591 | val_loss 1.9087 | train_acc 58.02% | val_acc 61.43% | 64.8s
+[Backbone] epoch 019/30 | train_loss 2.3784 | val_loss 1.8633 | train_acc 57.92% | val_acc 62.42% * | 64.5s
+[Backbone] epoch 020/30 | train_loss 2.2996 | val_loss 1.7575 | train_acc 60.04% | val_acc 64.60% * | 64.5s
+[Backbone] epoch 021/30 | train_loss 2.3054 | val_loss 1.7225 | train_acc 59.38% | val_acc 67.22% * | 64.5s
+[Backbone] epoch 022/30 | train_loss 2.2142 | val_loss 1.6174 | train_acc 64.11% | val_acc 70.33% * | 64.5s
+[Backbone] epoch 023/30 | train_loss 2.1353 | val_loss 1.5760 | train_acc 65.78% | val_acc 71.13% * | 64.6s
+[Backbone] epoch 024/30 | train_loss 2.1579 | val_loss 1.5346 | train_acc 66.28% | val_acc 72.70% * | 64.6s
+[Backbone] epoch 025/30 | train_loss 2.1251 | val_loss 1.5432 | train_acc 68.00% | val_acc 73.25% * | 64.6s
+[Backbone] epoch 026/30 | train_loss 2.0865 | val_loss 1.4552 | train_acc 69.50% | val_acc 75.57% * | 64.6s
+[Backbone] epoch 027/30 | train_loss 2.0416 | val_loss 1.4457 | train_acc 71.08% | val_acc 75.67% * | 64.5s
+[Backbone] epoch 028/30 | train_loss 1.9202 | val_loss 1.4097 | train_acc 73.13% | val_acc 76.88% * | 64.6s
+[Backbone] epoch 029/30 | train_loss 1.9076 | val_loss 1.3963 | train_acc 75.03% | val_acc 77.87% * | 64.5s
+[Backbone] epoch 030/30 | train_loss 1.9136 | val_loss 1.4044 | train_acc 75.57% | val_acc 77.72% | 64.3s
+Saved final-epoch backbone -> /Users/thapaswin/FSCIL project/stag_sti_fscil/checkpoints/backbone_base.pt
+Saved best-val-acc backbone (77.87% @ epoch 29) -> /Users/thapaswin/FSCIL project/stag_sti_fscil/checkpoints/backbone_base_best.pt
+
+=== Phase B: STAG-STI episodic training for 50 epochs (100 episodes/epoch, 15-way 5-shot) ===
+[STAG-STI] epoch 001/50 | loss 3.3145 (val 3.1858) (cls 2.5934, supcon 2.1568, graph 0.2698, stab 0.0657) | train_query_acc 10.59% | val_query_acc 15.87% * | 18.1s
+[STAG-STI] epoch 002/50 | loss 2.8494 (val 2.8709) (cls 2.1812, supcon 2.0200, graph 0.2185, stab 0.0749) | train_query_acc 22.73% | val_query_acc 24.47% * | 18.0s
+[STAG-STI] epoch 003/50 | loss 2.6084 (val 2.7176) (cls 1.9624, supcon 1.9876, graph 0.1710, stab 0.0701) | train_query_acc 33.19% | val_query_acc 36.13% * | 18.0s
+[STAG-STI] epoch 004/50 | loss 2.4251 (val 2.6251) (cls 1.8003, supcon 1.9500, graph 0.1248, stab 0.0862) | train_query_acc 41.27% | val_query_acc 39.47% * | 18.0s
+[STAG-STI] epoch 005/50 | loss 2.2619 (val 2.4524) (cls 1.6440, supcon 1.9458, graph 0.0935, stab 0.1083) | train_query_acc 49.15% | val_query_acc 48.53% * | 18.1s
+[STAG-STI] epoch 006/50 | loss 2.1175 (val 2.3677) (cls 1.5117, supcon 1.9192, graph 0.0704, stab 0.1248) | train_query_acc 58.03% | val_query_acc 52.40% * | 18.3s
+[STAG-STI] epoch 007/50 | loss 2.0868 (val 2.3328) (cls 1.4746, supcon 1.9501, graph 0.0601, stab 0.1218) | train_query_acc 60.25% | val_query_acc 56.13% * | 18.3s
+[STAG-STI] epoch 008/50 | loss 1.9693 (val 2.3270) (cls 1.3664, supcon 1.9219, graph 0.0528, stab 0.1312) | train_query_acc 65.95% | val_query_acc 58.00% * | 18.3s
+[STAG-STI] epoch 009/50 | loss 1.9151 (val 2.2659) (cls 1.3222, supcon 1.8982, graph 0.0435, stab 0.1261) | train_query_acc 68.00% | val_query_acc 61.13% * | 18.2s
+[STAG-STI] epoch 010/50 | loss 1.8405 (val 2.1486) (cls 1.2505, supcon 1.8933, graph 0.0365, stab 0.1290) | train_query_acc 72.89% | val_query_acc 66.60% * | 18.2s
+[STAG-STI] epoch 011/50 | loss 1.7691 (val 2.1270) (cls 1.1912, supcon 1.8563, graph 0.0300, stab 0.1358) | train_query_acc 76.39% | val_query_acc 70.27% * | 18.2s
+[STAG-STI] epoch 012/50 | loss 1.7468 (val 2.1399) (cls 1.1649, supcon 1.8718, graph 0.0271, stab 0.1351) | train_query_acc 78.40% | val_query_acc 66.67% | 18.1s
+[STAG-STI] epoch 013/50 | loss 1.7170 (val 2.1672) (cls 1.1227, supcon 1.9126, graph 0.0253, stab 0.1417) | train_query_acc 80.23% | val_query_acc 67.07% | 18.1s
+[STAG-STI] epoch 014/50 | loss 1.6849 (val 2.0062) (cls 1.1010, supcon 1.8776, graph 0.0236, stab 0.1471) | train_query_acc 80.83% | val_query_acc 74.13% * | 18.0s
+[STAG-STI] epoch 015/50 | loss 1.6413 (val 2.0219) (cls 1.0643, supcon 1.8561, graph 0.0211, stab 0.1484) | train_query_acc 82.24% | val_query_acc 73.80% | 18.1s
+[STAG-STI] epoch 016/50 | loss 1.6091 (val 1.9331) (cls 1.0286, supcon 1.8702, graph 0.0166, stab 0.1531) | train_query_acc 84.51% | val_query_acc 77.40% * | 18.1s
+[STAG-STI] epoch 017/50 | loss 1.6029 (val 1.9274) (cls 1.0227, supcon 1.8674, graph 0.0185, stab 0.1533) | train_query_acc 83.99% | val_query_acc 77.53% * | 18.0s
+[STAG-STI] epoch 018/50 | loss 1.5690 (val 1.8704) (cls 0.9932, supcon 1.8565, graph 0.0149, stab 0.1512) | train_query_acc 86.07% | val_query_acc 79.93% * | 18.0s
+[STAG-STI] epoch 019/50 | loss 1.5641 (val 1.8610) (cls 0.9851, supcon 1.8680, graph 0.0150, stab 0.1484) | train_query_acc 86.56% | val_query_acc 79.87% | 18.0s
+[STAG-STI] epoch 020/50 | loss 1.5224 (val 1.8500) (cls 0.9443, supcon 1.8674, graph 0.0133, stab 0.1449) | train_query_acc 87.84% | val_query_acc 80.07% * | 18.0s
+[STAG-STI] epoch 021/50 | loss 1.5001 (val 1.8093) (cls 0.9286, supcon 1.8486, graph 0.0121, stab 0.1389) | train_query_acc 88.27% | val_query_acc 80.07% | 18.0s
+[STAG-STI] epoch 022/50 | loss 1.5001 (val 1.8703) (cls 0.9314, supcon 1.8389, graph 0.0119, stab 0.1405) | train_query_acc 87.85% | val_query_acc 79.73% | 18.0s
+[STAG-STI] epoch 023/50 | loss 1.4791 (val 1.7899) (cls 0.9082, supcon 1.8481, graph 0.0104, stab 0.1388) | train_query_acc 89.52% | val_query_acc 82.80% * | 18.0s
+[STAG-STI] epoch 024/50 | loss 1.4696 (val 1.8194) (cls 0.8949, supcon 1.8628, graph 0.0086, stab 0.1375) | train_query_acc 89.93% | val_query_acc 81.33% | 18.3s
+[STAG-STI] epoch 025/50 | loss 1.4678 (val 1.8717) (cls 0.8902, supcon 1.8728, graph 0.0097, stab 0.1335) | train_query_acc 90.59% | val_query_acc 79.73% | 18.1s
+[STAG-STI] epoch 026/50 | loss 1.4441 (val 1.7817) (cls 0.8765, supcon 1.8406, graph 0.0079, stab 0.1343) | train_query_acc 90.41% | val_query_acc 83.33% * | 17.9s
+[STAG-STI] epoch 027/50 | loss 1.4214 (val 1.7629) (cls 0.8576, supcon 1.8298, graph 0.0080, stab 0.1284) | train_query_acc 91.21% | val_query_acc 84.00% * | 18.0s
+[STAG-STI] epoch 028/50 | loss 1.4181 (val 1.7642) (cls 0.8577, supcon 1.8201, graph 0.0078, stab 0.1242) | train_query_acc 90.97% | val_query_acc 83.27% | 18.0s
+[STAG-STI] epoch 029/50 | loss 1.4130 (val 1.7522) (cls 0.8530, supcon 1.8197, graph 0.0071, stab 0.1230) | train_query_acc 91.55% | val_query_acc 83.40% | 18.0s
+[STAG-STI] epoch 030/50 | loss 1.3985 (val 1.7651) (cls 0.8308, supcon 1.8458, graph 0.0065, stab 0.1239) | train_query_acc 92.76% | val_query_acc 84.00% | 18.0s
+[STAG-STI] epoch 031/50 | loss 1.3939 (val 1.7434) (cls 0.8328, supcon 1.8245, graph 0.0070, stab 0.1208) | train_query_acc 92.03% | val_query_acc 83.80% | 17.9s
+[STAG-STI] epoch 032/50 | loss 1.4002 (val 1.7806) (cls 0.8375, supcon 1.8307, graph 0.0070, stab 0.1168) | train_query_acc 91.68% | val_query_acc 82.27% | 17.9s
+[STAG-STI] epoch 033/50 | loss 1.3801 (val 1.7089) (cls 0.8197, supcon 1.8242, graph 0.0066, stab 0.1148) | train_query_acc 93.12% | val_query_acc 85.13% * | 17.9s
+[STAG-STI] epoch 034/50 | loss 1.3790 (val 1.6828) (cls 0.8219, supcon 1.8132, graph 0.0062, stab 0.1151) | train_query_acc 92.63% | val_query_acc 85.47% * | 17.9s
+[STAG-STI] epoch 035/50 | loss 1.3633 (val 1.7671) (cls 0.8074, supcon 1.8096, graph 0.0055, stab 0.1170) | train_query_acc 93.24% | val_query_acc 83.60% | 18.0s
+[STAG-STI] epoch 036/50 | loss 1.3855 (val 1.7861) (cls 0.8244, supcon 1.8273, graph 0.0062, stab 0.1134) | train_query_acc 92.53% | val_query_acc 84.40% | 17.9s
+[STAG-STI] epoch 037/50 | loss 1.3613 (val 1.7557) (cls 0.8077, supcon 1.8029, graph 0.0057, stab 0.1126) | train_query_acc 93.33% | val_query_acc 82.53% | 17.9s
+[STAG-STI] epoch 038/50 | loss 1.3764 (val 1.7449) (cls 0.8196, supcon 1.8141, graph 0.0059, stab 0.1112) | train_query_acc 92.73% | val_query_acc 84.47% | 17.9s
+[STAG-STI] epoch 039/50 | loss 1.3593 (val 1.6569) (cls 0.8064, supcon 1.8014, graph 0.0056, stab 0.1107) | train_query_acc 93.48% | val_query_acc 87.40% * | 17.9s
+[STAG-STI] epoch 040/50 | loss 1.3605 (val 1.7341) (cls 0.8036, supcon 1.8151, graph 0.0057, stab 0.1089) | train_query_acc 93.11% | val_query_acc 84.80% | 18.1s
+[STAG-STI] epoch 041/50 | loss 1.3561 (val 1.7427) (cls 0.8044, supcon 1.7975, graph 0.0056, stab 0.1105) | train_query_acc 93.37% | val_query_acc 84.00% | 17.9s
+[STAG-STI] epoch 042/50 | loss 1.3409 (val 1.6926) (cls 0.7868, supcon 1.8070, graph 0.0055, stab 0.1062) | train_query_acc 93.71% | val_query_acc 86.40% | 17.9s
+[STAG-STI] epoch 043/50 | loss 1.3351 (val 1.6988) (cls 0.7856, supcon 1.7913, graph 0.0053, stab 0.1079) | train_query_acc 93.77% | val_query_acc 85.07% | 18.0s
+[STAG-STI] epoch 044/50 | loss 1.3376 (val 1.6935) (cls 0.7847, supcon 1.8031, graph 0.0057, stab 0.1057) | train_query_acc 93.60% | val_query_acc 87.13% | 18.0s
+[STAG-STI] epoch 045/50 | loss 1.3487 (val 1.6655) (cls 0.7989, supcon 1.7922, graph 0.0052, stab 0.1077) | train_query_acc 93.55% | val_query_acc 87.40% | 17.9s
+[STAG-STI] epoch 046/50 | loss 1.3492 (val 1.7567) (cls 0.7942, supcon 1.8103, graph 0.0056, stab 0.1057) | train_query_acc 93.79% | val_query_acc 82.93% | 17.9s
+[STAG-STI] epoch 047/50 | loss 1.3688 (val 1.6769) (cls 0.8149, supcon 1.8060, graph 0.0056, stab 0.1069) | train_query_acc 92.39% | val_query_acc 86.80% | 17.9s
+[STAG-STI] epoch 048/50 | loss 1.3403 (val 1.6939) (cls 0.7896, supcon 1.7949, graph 0.0056, stab 0.1081) | train_query_acc 93.35% | val_query_acc 85.53% | 17.9s
+[STAG-STI] epoch 049/50 | loss 1.3525 (val 1.6783) (cls 0.7972, supcon 1.8114, graph 0.0056, stab 0.1047) | train_query_acc 93.49% | val_query_acc 85.73% | 17.9s
+[STAG-STI] epoch 050/50 | loss 1.3317 (val 1.6952) (cls 0.7846, supcon 1.7836, graph 0.0052, stab 0.1076) | train_query_acc 93.64% | val_query_acc 85.80% | 17.9s
+
+Saved final-epoch STAG-STI checkpoint -> /Users/thapaswin/FSCIL project/stag_sti_fscil/checkpoints/stag_sti_session0.pt
+Saved best-val-acc STAG-STI checkpoint (87.40% @ epoch 39) -> /Users/thapaswin/FSCIL project/stag_sti_fscil/checkpoints/stag_sti_session0_best.pt
+
+Saved training history -> /Users/thapaswin/FSCIL project/stag_sti_fscil/checkpoints/training_history.json
+Run `python -m fscil.plotting` to generate comparison plots from this history.

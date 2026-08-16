@@ -35,6 +35,9 @@ class Config:
     label_smoothing = 0.1                        # softens both Phase A and Phase B cross-entropy targets
     random_erasing_prob = 0.25                    # cutout-style augmentation added to train transforms
     early_stop_patience = 8                          # epochs of no val_acc improvement before Phase A stops early
+    use_mixup_cutmix = True                            # Phase A: randomly apply Mixup or CutMix per batch
+    mixup_alpha = 0.2                                     # Beta(alpha,alpha) mixing coefficient for Mixup
+    cutmix_alpha = 1.0                                      # Beta(alpha,alpha) mixing coefficient for CutMix
 
     # ---------------- Graph / projection dims ----------------
     proj_dim = 256           # d' (post W_proj bottleneck)
@@ -54,9 +57,9 @@ class Config:
     episode_query = 5         # queries per class per episode
 
     # ---------------- Loss weights (per your Session-0 composite loss table) ----------------
-    supcon_temperature = 0.07
+    supcon_temperature = 0.15   # was 0.07 -- raised to loosen over-tight clustering (val_supcon was flat/noisy)
     lambda_cls = 1.0            # L_cls (cross-entropy on query classification)
-    lambda_supcon = 0.5         # lambda_1 * L_supcon_view
+    lambda_supcon = 0.3         # was 0.5 -- reduced so SupCon doesn't over-constrain the novel-class feature space
     lambda_graph = 0.25         # lambda_2 * L_graph (topology BCE supervision)
     lambda_stab = 0.1           # lambda_3 * L_stab (memory adapter + gate regularizer)
     lambda_gate_sat = 0.1       # weight of L_gate_sat *inside* L_stab (separate from lambda_stab)
@@ -70,6 +73,17 @@ class Config:
     main_lr = 1e-3
     weight_decay = 1e-2          # was 5e-4 -- increased to fight the 99%/84% train/val gap
     main_early_stop_patience = 12  # epochs of no val_query_acc improvement before Phase B stops early
+
+    # ---------------- Incremental eval-time calibration (Phase C) ----------------
+    # ASSUMPTION / heuristic: not derived from any spec -- base prototypes are
+    # averaged from many more images and trained on longer than 5-shot novel
+    # prototypes, so even after L2-normalizing both (cosine similarity is
+    # already magnitude-invariant), base-class cosine scores tend to run
+    # systematically higher just from being better-estimated points. This is
+    # a simple additive logit bias applied ONLY to non-base (novel) classes
+    # at incremental-eval time to compensate. Tune this against your own
+    # val split -- 0.0 disables it entirely.
+    novel_logit_bias = 0.5
 
     # ---------------- Misc ----------------
     seed = 42

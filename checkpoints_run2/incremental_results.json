@@ -1,0 +1,51 @@
+{
+  "results": [
+    {
+      "session": 0,
+      "num_classes_seen": 60,
+      "accuracy": 0.7845
+    },
+    {
+      "session": 1,
+      "num_classes_seen": 65,
+      "accuracy": 0.7273846153846154
+    },
+    {
+      "session": 2,
+      "num_classes_seen": 70,
+      "accuracy": 0.6785714285714286
+    },
+    {
+      "session": 3,
+      "num_classes_seen": 75,
+      "accuracy": 0.6350666666666667
+    },
+    {
+      "session": 4,
+      "num_classes_seen": 80,
+      "accuracy": 0.59725
+    },
+    {
+      "session": 5,
+      "num_classes_seen": 85,
+      "accuracy": 0.5644705882352942
+    },
+    {
+      "session": 6,
+      "num_classes_seen": 90,
+      "accuracy": 0.535
+    },
+    {
+      "session": 7,
+      "num_classes_seen": 95,
+      "accuracy": 0.5091578947368421
+    },
+    {
+      "session": 8,
+      "num_classes_seen": 100,
+      "accuracy": 0.4842
+    }
+  ],
+  "PD": 30.029999999999994,
+  "avg_accuracy": 61.284457706609416
+}

@@ -103,10 +103,20 @@ def write_new_memory_rows(stag_model, P_new, A_tilde_new, session_idx, device):
 
 
 @torch.no_grad()
-def evaluate_cumulative(backbone, stag_model, full_test_ds, class_order, H, device, batch_size=256):
+def evaluate_cumulative(backbone, stag_model, full_test_ds, class_order, H, device,
+                         novel_mask=None, batch_size=256):
     """Accuracy over the test set restricted to every class in class_order,
     classified against the current persistent memory H (rows aligned to
-    class_order)."""
+    class_order).
+
+    novel_mask: optional (len(class_order),) bool tensor, True for classes
+    NOT introduced in the base session. When given, Config.novel_logit_bias
+    is added to those classes' logits before argmax -- a calibration
+    correction for the systematic base-class favoritism that comes from
+    base prototypes being far better estimated (many images) than 5-shot
+    novel ones, even after cosine normalization removes any raw magnitude
+    effect. Set Config.novel_logit_bias = 0.0 to disable.
+    """
     pos_map = {c: i for i, c in enumerate(class_order)}
     indices = []
     for c in class_order:
@@ -126,6 +136,8 @@ def evaluate_cumulative(backbone, stag_model, full_test_ds, class_order, H, devi
         feats = backbone(imgs)
         z_q = stag_model.projection(feats)
         logits = stag_model.classify_query(z_q, H)
+        if novel_mask is not None and Config.novel_logit_bias != 0.0:
+            logits = logits + novel_mask.to(device).float() * Config.novel_logit_bias
         preds = logits.argmax(dim=1)
         correct += (preds == true_pos).sum().item()
         total += len(batch_idx)
@@ -193,7 +205,9 @@ def main():
         H = torch.cat([H, H_new_rows], dim=0)
         class_order.extend(class_list)
 
-        acc = evaluate_cumulative(backbone, stag_model, full_test_ds, class_order, H, device)
+        novel_mask = torch.tensor([c not in base_classes for c in class_order], dtype=torch.bool)
+        acc = evaluate_cumulative(backbone, stag_model, full_test_ds, class_order, H, device,
+                                   novel_mask=novel_mask)
         results.append({"session": session_idx, "num_classes_seen": len(class_order), "accuracy": acc})
 
         label = "Session 0 (base)" if session_idx == 0 else f"Session {session_idx} (+{len(class_list)} novel)"

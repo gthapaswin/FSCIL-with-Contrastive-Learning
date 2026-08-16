@@ -65,6 +65,34 @@ def set_seed(seed):
 
 
 # ---------------------------------------------------------------------------
+# Mixup / CutMix (Phase A regularization -- randomly picks one per batch)
+# ---------------------------------------------------------------------------
+def mixup_cutmix_batch(imgs, labels, num_classes, device):
+    """Returns (mixed_imgs, labels_a, labels_b, lam). Loss should be computed
+    as lam * CE(logits, labels_a) + (1-lam) * CE(logits, labels_b)."""
+    use_cutmix = random.random() < 0.5
+    alpha = Config.cutmix_alpha if use_cutmix else Config.mixup_alpha
+    lam = float(np.random.beta(alpha, alpha)) if alpha > 0 else 1.0
+    perm = torch.randperm(imgs.size(0), device=device)
+    labels_b = labels[perm]
+
+    if use_cutmix:
+        B, C, H, W = imgs.shape
+        cut_ratio = (1 - lam) ** 0.5
+        cut_h, cut_w = int(H * cut_ratio), int(W * cut_ratio)
+        cy, cx = random.randint(0, H - 1), random.randint(0, W - 1)
+        y1, y2 = max(cy - cut_h // 2, 0), min(cy + cut_h // 2, H)
+        x1, x2 = max(cx - cut_w // 2, 0), min(cx + cut_w // 2, W)
+        imgs[:, :, y1:y2, x1:x2] = imgs[perm][:, :, y1:y2, x1:x2]
+        lam = 1 - ((y2 - y1) * (x2 - x1) / (H * W))  # recompute exact lambda from actual patch area
+        mixed = imgs
+    else:
+        mixed = lam * imgs + (1 - lam) * imgs[perm]
+
+    return mixed, labels, labels_b, lam
+
+
+# ---------------------------------------------------------------------------
 # Phase A: backbone pretraining on base classes (plain classification)
 # ---------------------------------------------------------------------------
 def pretrain_backbone(base_classes, device, epochs, out_path):
@@ -83,6 +111,8 @@ def pretrain_backbone(base_classes, device, epochs, out_path):
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=epochs)
 
     print(f"\n=== Phase A: backbone pretraining on {len(base_classes)} base classes for {epochs} epochs ===")
+    if Config.use_mixup_cutmix:
+        print("Mixup/CutMix enabled (randomly applied per batch)")
 
     history = {"train_loss": [], "val_loss": [], "train_acc": [], "val_acc": []}
     best_val_acc, best_epoch, patience_ctr = 0.0, 0, 0
@@ -96,13 +126,22 @@ def pretrain_backbone(base_classes, device, epochs, out_path):
         total_loss, correct, total = 0.0, 0, 0
         for imgs, labels in train_loader:
             imgs, labels = imgs.to(device), labels.to(device)
-            logits, _ = model(imgs)
-            loss = F.cross_entropy(logits, labels, label_smoothing=Config.label_smoothing)
+            if Config.use_mixup_cutmix:
+                imgs, labels_a, labels_b, lam = mixup_cutmix_batch(imgs, labels, len(base_classes), device)
+                logits, _ = model(imgs)
+                loss = (lam * F.cross_entropy(logits, labels_a, label_smoothing=Config.label_smoothing)
+                        + (1 - lam) * F.cross_entropy(logits, labels_b, label_smoothing=Config.label_smoothing))
+                # train_acc under mixup is an approximation (checked against the dominant label)
+                acc_labels = labels_a if lam >= 0.5 else labels_b
+            else:
+                logits, _ = model(imgs)
+                loss = F.cross_entropy(logits, labels, label_smoothing=Config.label_smoothing)
+                acc_labels = labels
             opt.zero_grad()
             loss.backward()
             opt.step()
             total_loss += loss.item() * imgs.size(0)
-            correct += (logits.argmax(1) == labels).sum().item()
+            correct += (logits.argmax(1) == acc_labels).sum().item()
             total += imgs.size(0)
         sched.step()
         train_loss = total_loss / total

@@ -1,0 +1,20 @@
+Using device: mps
+
+=== Incremental FSCIL evaluation: 9 sessions (session 0 = 60 base classes, sessions 1-8 = 5-way 5-shot) ===
+[Session 0 (base)] classes_seen= 60 | cumulative_test_acc=73.47% | 2.8s
+[Session 1 (+5 novel)] classes_seen= 65 | cumulative_test_acc=67.03% | 2.4s
+[Session 2 (+5 novel)] classes_seen= 70 | cumulative_test_acc=60.91% | 2.5s
+[Session 3 (+5 novel)] classes_seen= 75 | cumulative_test_acc=56.67% | 2.7s
+[Session 4 (+5 novel)] classes_seen= 80 | cumulative_test_acc=52.76% | 2.9s
+[Session 5 (+5 novel)] classes_seen= 85 | cumulative_test_acc=49.16% | 3.1s
+[Session 6 (+5 novel)] classes_seen= 90 | cumulative_test_acc=46.37% | 3.3s
+[Session 7 (+5 novel)] classes_seen= 95 | cumulative_test_acc=44.05% | 3.4s
+[Session 8 (+5 novel)] classes_seen=100 | cumulative_test_acc=42.03% | 3.6s
+
+=== Summary (standard FSCIL metrics) ===
+Session 0 accuracy (base only):        73.47%
+Final session accuracy (all classes):  42.03%
+Performance Drop (PD = Acc0 - AccT):     31.44 points
+Average accuracy across all sessions:  54.72%
+
+Saved results -> /Users/thapaswin/FSCIL project/stag_sti_fscil/checkpoints/incremental_results.json
