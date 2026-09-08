@@ -1,6 +1,6 @@
 # STAG-STI — Results & Analysis
 
-_Generated 2026-09-08 18:50 • auto-updated as runs complete._
+_Generated 2026-09-08 18:51 • auto-updated as runs complete._
 
 ## In-domain results
 
@@ -30,7 +30,7 @@ _CUB-200 baselines from the Review-1 deck; CIFAR-100 / miniImageNet baselines ar
 | Configuration | A₀ | A_T | PD ↓ | Avg |
 |---|---|---|---|---|
 | Full model | 78.22 | 49.53 | 28.69 | 62.08 |
-| − supcon | 78.40 | 48.76 | 29.64 | 61.71 |
+| − supcon | 78.53 | 49.28 | 29.25 | 62.00 |
 | − topology | 78.15 | 50.03 | 28.12 | 61.93 |
 | − agedecay | 78.60 | 49.51 | 29.09 | 62.14 |
 
