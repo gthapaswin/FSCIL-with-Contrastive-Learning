@@ -146,58 +146,73 @@ def write_new_memory_rows(stag_model, P_new, A_tilde_new, session_idx, device):
 
 @torch.no_grad()
 def evaluate_cumulative(backbone, stag_model, full_test_ds, class_order, H, device,
-                         novel_mask=None, base_set=None, batch_size=256):
+                         novel_mask=None, base_set=None, batch_size=256,
+                         transductive=False, alpha=0.5, td_iters=3):
     """Accuracy over the test set restricted to every class in class_order,
     classified against the current persistent memory H (rows aligned to
     class_order).
 
-    novel_mask: optional (len(class_order),) bool tensor, True for classes
-    NOT introduced in the base session. When given, Config.novel_logit_bias
-    is added to those classes' logits before argmax -- a calibration
-    correction for the systematic base-class favoritism that comes from
-    base prototypes being far better estimated (many images) than 5-shot
-    novel ones, even after cosine normalization removes any raw magnitude
-    effect. Set Config.novel_logit_bias = 0.0 to disable.
+    novel_mask: optional (len(class_order),) bool tensor, True for non-base
+    classes. When given, Config.novel_logit_bias is added to those classes'
+    logits -- a calibration correction for base-class favoritism (base
+    prototypes are far better estimated than 5-shot novel ones). Set
+    Config.novel_logit_bias = 0.0 to disable.
+
+    transductive: if True, refine prototypes with BD-CSPN -- pseudo-label the
+    (unlabelled) test queries by nearest prototype, then set each prototype to
+    the normalized blend of its memory row and the mean of queries assigned to
+    it (alpha weights the memory row), iterated td_iters times. This uses the
+    whole test set jointly (a stronger protocol than inductive per-query eval)
+    and must be reported as transductive.
     """
+    import torch.nn.functional as F
     pos_map = {c: i for i, c in enumerate(class_order)}
     indices = []
     for c in class_order:
         indices.extend(full_test_ds.indices_for_class(c))
 
-    correct, total = 0, 0
-    base_correct, base_total = 0, 0
-    novel_correct, novel_total = 0, 0
+    # one feature pass -> collect all query embeddings
+    z_all, true_all, base_all = [], [], []
     for start in range(0, len(indices), batch_size):
         batch_idx = indices[start:start + batch_size]
-        imgs, true_pos, is_base = [], [], []
+        imgs, tp, ib = [], [], []
         for i in batch_idx:
             img, raw_label = full_test_ds[i]
             imgs.append(img)
-            true_pos.append(pos_map[raw_label])
-            is_base.append(base_set is None or raw_label in base_set)
+            tp.append(pos_map[raw_label])
+            ib.append(base_set is None or raw_label in base_set)
         imgs = torch.stack(imgs, dim=0).to(device)
-        true_pos = torch.tensor(true_pos, device=device)
+        z_all.append(stag_model.projection(backbone(imgs)))
+        true_all.extend(tp); base_all.extend(ib)
+    z = torch.cat(z_all, dim=0)
+    true_pos = torch.tensor(true_all, device=device)
+    is_base = torch.tensor(base_all, device=device)
+    bias = (novel_mask.to(device).float() * Config.novel_logit_bias
+            if (novel_mask is not None and Config.novel_logit_bias != 0.0) else 0.0)
 
-        feats = backbone(imgs)
-        z_q = stag_model.projection(feats)
-        logits = stag_model.classify_query(z_q, H)
-        if novel_mask is not None and Config.novel_logit_bias != 0.0:
-            logits = logits + novel_mask.to(device).float() * Config.novel_logit_bias
-        preds = logits.argmax(dim=1)
-        hit = (preds == true_pos)
-        correct += hit.sum().item()
-        total += len(batch_idx)
-        for j, b in enumerate(is_base):
-            if b:
-                base_total += 1
-                base_correct += int(hit[j].item())
-            else:
-                novel_total += 1
-                novel_correct += int(hit[j].item())
+    if not transductive:
+        logits = stag_model.classify_query(z, H) + bias
+    else:
+        inv_tau = stag_model.classifier.log_inv_tau.exp()
+        zn, Hn = F.normalize(z, dim=-1), F.normalize(H, dim=-1)
+        refined = Hn.clone()
+        for _ in range(td_iters):
+            pseudo = (inv_tau * (zn @ refined.T) + bias).argmax(1)
+            newp = refined.clone()
+            for k in range(Hn.shape[0]):
+                m = (pseudo == k)
+                if m.any():
+                    newp[k] = F.normalize(alpha * Hn[k] + (1 - alpha) * zn[m].mean(0), dim=-1)
+            refined = newp
+        logits = inv_tau * (zn @ refined.T) + bias
+
+    preds = logits.argmax(dim=1)
+    hit = (preds == true_pos)
+    bt = is_base.sum().item(); nt = (~is_base).sum().item()
     return {
-        "acc": correct / total,
-        "acc_base": (base_correct / base_total) if base_total else float("nan"),
-        "acc_novel": (novel_correct / novel_total) if novel_total else float("nan"),
+        "acc": hit.float().mean().item(),
+        "acc_base": (hit[is_base].float().mean().item()) if bt else float("nan"),
+        "acc_novel": (hit[~is_base].float().mean().item()) if nt else float("nan"),
     }
 
 
@@ -213,6 +228,9 @@ def main():
     parser.add_argument("--random_support", action="store_true",
                          help="Sample incremental support randomly instead of using the exact "
                               "official few-shot samples (default: use official samples).")
+    parser.add_argument("--transductive", action="store_true",
+                         help="Refine prototypes with BD-CSPN using the unlabelled test set "
+                              "(stronger, transductive protocol). Writes to a transductive/ subdir.")
     parser.add_argument("--backbone_ckpt", type=str, default=None,
                          help="Path to backbone checkpoint. Defaults to checkpoints/backbone_base.pt "
                               "(final-epoch). Pass checkpoints/backbone_base_best.pt to use the best-val "
@@ -291,7 +309,8 @@ def main():
 
         novel_mask = torch.tensor([c not in base_set for c in class_order], dtype=torch.bool)
         m = evaluate_cumulative(backbone, stag_model, full_test_ds, class_order, H, device,
-                                novel_mask=novel_mask, base_set=base_set)
+                                novel_mask=novel_mask, base_set=base_set,
+                                transductive=args.transductive)
         acc, acc_base, acc_novel = m["acc"], m["acc_base"], m["acc_novel"]
         hm = (2 * acc_base * acc_novel / (acc_base + acc_novel)
               if (acc_base == acc_base and acc_novel == acc_novel and (acc_base + acc_novel) > 0)
@@ -324,8 +343,9 @@ def main():
     print(f"Final novel-only accuracy (A_N):       {aN:.2f}%")
     print(f"Final harmonic mean (A_B, A_N):        {hmT:.2f}%")
 
-    os.makedirs(Config.ckpt_dir, exist_ok=True)
-    out_path = os.path.join(Config.ckpt_dir, "incremental_results.json")
+    out_dir = os.path.join(Config.ckpt_dir, "transductive") if args.transductive else Config.ckpt_dir
+    os.makedirs(out_dir, exist_ok=True)
+    out_path = os.path.join(out_dir, "incremental_results.json")
     with open(out_path, "w") as f:
         json.dump({"dataset": spec.key, "results": results, "PD": pd, "avg_accuracy": avg_acc,
                    "A_B": aB, "A_N": aN, "harmonic_mean": hmT}, f, indent=2)
