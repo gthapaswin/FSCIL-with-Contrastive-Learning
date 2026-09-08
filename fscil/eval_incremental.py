@@ -181,6 +181,10 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset", type=str, default="cifar100",
                          help="cifar100 | miniimagenet | cub200")
+    parser.add_argument("--ablate", nargs="+", default=None,
+                         choices=["none", "supcon", "topology", "agedecay"],
+                         help="Must match the ablations used at training time "
+                              "(loads from and writes to the ablate-... namespace).")
     parser.add_argument("--shot", type=int, default=None)
     parser.add_argument("--random_support", action="store_true",
                          help="Sample incremental support randomly instead of using the exact "
@@ -196,18 +200,20 @@ def main():
     args = parser.parse_args()
 
     spec = Config.apply_dataset(args.dataset)
+    ablations = Config.apply_ablation(args.ablate)
     shot = args.shot if args.shot is not None else Config.shot
     set_seed(Config.seed)
     device = get_device(Config.device)
     print(f"Using device: {device}")
-    print(f"Dataset: {spec.pretty_name} | backbone: {Config.backbone_type}")
+    print(f"Dataset: {spec.pretty_name} | backbone: {Config.backbone_type}"
+          + (f" | ABLATION: {ablations}" if ablations else ""))
 
     plan = load_plan(spec)
     base_classes, incremental_sessions = get_official_split(spec, plan)
     base_set = set(base_classes)
     all_sessions = [base_classes] + incremental_sessions
 
-    backbone_ckpt = args.backbone_ckpt or os.path.join(Config.ckpt_dir, "backbone_base.pt")
+    backbone_ckpt = args.backbone_ckpt or os.path.join(Config.backbone_ckpt_dir, "backbone_base.pt")
     stag_ckpt = args.stag_ckpt or os.path.join(Config.ckpt_dir, "stag_sti_session0.pt")
     if not (os.path.exists(backbone_ckpt) and os.path.exists(stag_ckpt)):
         raise FileNotFoundError(

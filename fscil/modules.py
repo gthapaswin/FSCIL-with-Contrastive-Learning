@@ -226,6 +226,10 @@ class STIMemory(nn.Module):
 
         beta = torch.sigmoid(self.kappa * (session - class_ages) - self.kappa0)     # (C_t,)
         beta = beta.unsqueeze(-1).expand_as(R_gate)                                    # broadcast to d'
+        if Config.ablate_agedecay:
+            # Ablation: remove the temporal age-decay prior -> Gamma = R_gate,
+            # so old classes get no age-based hardening.
+            beta = torch.zeros_like(beta)
 
         Gamma = beta + (1 - beta) * R_gate                                              # affine blend, per Sec.4
 

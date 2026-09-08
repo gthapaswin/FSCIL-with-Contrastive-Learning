@@ -41,6 +41,10 @@ class StagStiModel(nn.Module):
         """
         h0 = self.projection(w_cm)                            # Stage 3: W_proj -> d'
         A_soft = self.topology(h0)                                # Stage 4
+        if Config.ablate_topology:
+            # Ablation: drop learned topology gating -> GAT attends over a
+            # uniform adjacency (every class pair treated as equally related).
+            A_soft = torch.ones_like(A_soft)
         h_enriched = self.gat(h0, A_soft, view_ids)              # Stage 5
         return h0, h_enriched, A_soft
 

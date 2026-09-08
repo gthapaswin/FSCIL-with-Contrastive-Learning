@@ -102,6 +102,16 @@ class Config:
     device = "auto"             # "auto" picks mps -> cuda -> cpu
     log_every = 10
 
+    # ---------------- Ablations (slide-17 component study) ----------------
+    # Set via Config.apply_ablation([...]). Each disables one STAG-STI piece:
+    #   supcon   -> no contrastive pre-conditioning (lambda_supcon = 0)
+    #   topology -> no learned topology gating (GAT sees a uniform adjacency,
+    #               lambda_graph = 0)
+    #   agedecay -> no temporal age-decay prior in STI (beta = 0, Gamma = R_gate)
+    ablate_supcon = False
+    ablate_topology = False
+    ablate_agedecay = False
+
     # -----------------------------------------------------------------------
     # Dataset switch
     # -----------------------------------------------------------------------
@@ -128,6 +138,37 @@ class Config:
         cls.shot = spec.shot
         cls.ckpt_dir = os.path.join(cls.repo_root, "checkpoints", spec.key)
         cls.log_dir = os.path.join(cls.repo_root, "logs", spec.key)
+        # dataset-level backbone dir -- NOT namespaced by ablation, since Phase A
+        # (the frozen backbone) is identical across component ablations.
+        cls.backbone_ckpt_dir = cls.ckpt_dir
         # keep episodic way within the available base-class pool
         cls.episode_way = min(cls.episode_way, spec.num_base_classes)
         return spec
+
+    VALID_ABLATIONS = ("supcon", "topology", "agedecay")
+
+    @classmethod
+    def apply_ablation(cls, names):
+        """Enable one or more component ablations and namespace the output dirs
+        so ablated runs never overwrite the full-model run. Call AFTER
+        apply_dataset(). Pass names from VALID_ABLATIONS (or None/["none"])."""
+        names = sorted({n for n in (names or []) if n and n != "none"})
+        for n in names:
+            if n not in cls.VALID_ABLATIONS:
+                raise ValueError(f"Unknown ablation '{n}'. Valid: {cls.VALID_ABLATIONS}")
+        # capture the tuned loss-weight defaults once, so toggling an ablation
+        # off restores them instead of leaking a zero from an earlier call
+        if not getattr(cls, "_ablation_defaults_captured", False):
+            cls._default_lambda_supcon = cls.lambda_supcon
+            cls._default_lambda_graph = cls.lambda_graph
+            cls._ablation_defaults_captured = True
+        cls.ablate_supcon = "supcon" in names
+        cls.ablate_topology = "topology" in names
+        cls.ablate_agedecay = "agedecay" in names
+        cls.lambda_supcon = 0.0 if cls.ablate_supcon else cls._default_lambda_supcon
+        cls.lambda_graph = 0.0 if cls.ablate_topology else cls._default_lambda_graph
+        if names:
+            suffix = "ablate-" + "-".join(names)
+            cls.ckpt_dir = os.path.join(cls.ckpt_dir, suffix)
+            cls.log_dir = os.path.join(cls.log_dir, suffix)
+        return names

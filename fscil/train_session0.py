@@ -353,6 +353,10 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset", type=str, default="cifar100",
                          help="cifar100 | miniimagenet | cub200")
+    parser.add_argument("--ablate", nargs="+", default=None,
+                         choices=["none", "supcon", "topology", "agedecay"],
+                         help="Disable STAG-STI components for the ablation study "
+                              "(namespaces output under checkpoints/<ds>/ablate-...).")
     parser.add_argument("--backbone_epochs", type=int, default=Config.backbone_pretrain_epochs)
     parser.add_argument("--main_epochs", type=int, default=Config.main_epochs)
     parser.add_argument("--skip_backbone_pretrain", action="store_true",
@@ -360,18 +364,25 @@ def main():
     args = parser.parse_args()
 
     spec = Config.apply_dataset(args.dataset)
+    ablations = Config.apply_ablation(args.ablate)
     set_seed(Config.seed)
     device = get_device(Config.device)
     print(f"Using device: {device}")
     print(f"Dataset: {spec.pretty_name} | backbone: {Config.backbone_type} | "
           f"{spec.num_base_classes} base + {spec.num_incremental_sessions}x{spec.way}-way "
           f"{spec.shot}-shot | output -> {Config.ckpt_dir}")
+    if ablations:
+        print(f"ABLATION: disabled {ablations} "
+              f"(lambda_supcon={Config.lambda_supcon}, lambda_graph={Config.lambda_graph})")
 
     base_classes, incremental_sessions = get_official_split(spec)
     print(f"Base classes ({len(base_classes)}): {base_classes}")
     print(f"Incremental sessions ({spec.num_incremental_sessions} x {spec.way}-way): {incremental_sessions}")
 
-    backbone_ckpt = os.path.join(Config.ckpt_dir, "backbone_base.pt")
+    # backbone lives at the dataset level (shared across ablations); the
+    # STAG-STI checkpoint + history go under the (possibly ablated) ckpt_dir.
+    os.makedirs(Config.backbone_ckpt_dir, exist_ok=True)
+    backbone_ckpt = os.path.join(Config.backbone_ckpt_dir, "backbone_base.pt")
     full_history = {}
 
     if args.skip_backbone_pretrain and os.path.exists(backbone_ckpt):
