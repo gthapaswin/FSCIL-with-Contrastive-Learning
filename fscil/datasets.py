@@ -61,6 +61,10 @@ class DatasetSpec:
     loader: str                    # "cifar100" (index-based) | "imagefolder" (path-based)
     data_subdir: str = ""          # for imagefolder datasets: root prefix inside data/
     query_per_class: Optional[int] = None  # eval-time query cap; None = use all test imgs
+    # Optional per-dataset Phase-A (backbone) overrides; None -> use Config default.
+    bb_lr: Optional[float] = None            # lower for a pretrained backbone (fine-tune)
+    bb_batch: Optional[int] = None           # smaller for high-res inputs (mps memory)
+    bb_epochs: Optional[int] = None
 
     @property
     def num_novel_classes(self) -> int:
@@ -103,6 +107,8 @@ DATASET_SPECS = {
         num_base_classes=100, way=10, shot=5, num_incremental_sessions=10,
         backbone="resnet18_pretrained", split_subdir="cub200", loader="imagefolder",
         data_subdir="CUB_200_2011",
+        # ImageNet-pretrained backbone -> fine-tune at a low LR; 224px -> small batch
+        bb_lr=0.01, bb_batch=64, bb_epochs=30,
     ),
 }
 

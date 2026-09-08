@@ -136,6 +136,17 @@ class Config:
         cls.num_incremental_sessions = spec.num_incremental_sessions
         cls.way = spec.way
         cls.shot = spec.shot
+        # per-dataset Phase-A overrides (e.g. CUB fine-tunes a pretrained backbone).
+        # capture the base defaults once so a dataset without overrides restores
+        # them instead of inheriting a previous dataset's values.
+        if not getattr(cls, "_bb_defaults_captured", False):
+            cls._default_bb_lr = cls.backbone_pretrain_lr
+            cls._default_bb_batch = cls.backbone_pretrain_batch_size
+            cls._default_bb_epochs = cls.backbone_pretrain_epochs
+            cls._bb_defaults_captured = True
+        cls.backbone_pretrain_lr = spec.bb_lr if spec.bb_lr is not None else cls._default_bb_lr
+        cls.backbone_pretrain_batch_size = spec.bb_batch if spec.bb_batch is not None else cls._default_bb_batch
+        cls.backbone_pretrain_epochs = spec.bb_epochs if spec.bb_epochs is not None else cls._default_bb_epochs
         cls.ckpt_dir = os.path.join(cls.repo_root, "checkpoints", spec.key)
         cls.log_dir = os.path.join(cls.repo_root, "logs", spec.key)
         # dataset-level backbone dir -- NOT namespaced by ablation, since Phase A
