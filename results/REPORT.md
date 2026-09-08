@@ -1,13 +1,13 @@
 # STAG-STI — Results & Analysis
 
-_Generated 2026-09-08 16:58 • auto-updated as runs complete._
+_Generated 2026-09-08 17:55 • auto-updated as runs complete._
 
 ## In-domain results
 
 | Dataset | A₀ (base) | A_T (final) | PD ↓ | Avg | A_B | A_N | HM |
 |---|---|---|---|---|---|---|---|
 | CIFAR-100 | 78.23 | 49.43 | 28.80 | 61.98 | 68.45 | 20.90 | 32.02 |
-| miniImageNet | _pending_ | | | | | | |
+| miniImageNet | 66.57 | 40.34 | 26.23 | 51.32 | 56.20 | 16.55 | 25.57 |
 | CUB-200 | 1.05 | 1.73 | -0.68 | 5.39 | 0.00 | 3.41 | 0.00 |
 
 ## Cross-domain (miniImageNet → CUB)
@@ -21,7 +21,7 @@ _Generated 2026-09-08 16:58 • auto-updated as runs complete._
 | FACT | TODO | TODO | 56.94 |
 | SAVC | TODO | TODO | 62.50 |
 | CLOSER | TODO | TODO | 63.58 |
-| **STAG-STI (ours)** | **49.43** | _pending_ | **1.73** |
+| **STAG-STI (ours)** | **49.43** | **40.34** | **1.73** |
 
 _CUB-200 baselines from the Review-1 deck; CIFAR-100 / miniImageNet baselines are TODO — fill from the source papers._
 
