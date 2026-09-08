@@ -128,11 +128,15 @@ class IndexedDataset(Dataset):
         self.data = None          # cifar: numpy array; imagefolder: None
         self.paths = None         # imagefolder: list of file paths
         self.targets = []         # global labels
+        # source_refs[i] is the identity used by the official split files:
+        # an int index into the CIFAR train array, or a data-root-relative
+        # image path. Lets a split-file line resolve to a sample index.
+        self.source_refs = []
 
         if self.loader == "cifar100":
             base = torchvision.datasets.CIFAR100(root=Config.data_root, train=train, download=download)
             data, targets = [], []
-            for img, native_label in zip(base.data, base.targets):
+            for orig_idx, (img, native_label) in enumerate(zip(base.data, base.targets)):
                 g = key_to_global.get(int(native_label))
                 if g is None:
                     continue
@@ -140,6 +144,7 @@ class IndexedDataset(Dataset):
                     continue
                 data.append(img)
                 targets.append(g)
+                self.source_refs.append(int(orig_idx))
             self.data = np.stack(data, axis=0)
             self.targets = targets
         else:
@@ -159,8 +164,10 @@ class IndexedDataset(Dataset):
                     continue
                 for fn in sorted(os.listdir(cls_dir)):
                     if fn.lower().endswith((".jpg", ".jpeg", ".png")):
-                        paths.append(os.path.join(cls_dir, fn))
+                        ap = os.path.join(cls_dir, fn)
+                        paths.append(ap)
                         targets.append(g)
+                        self.source_refs.append(os.path.relpath(ap, Config.data_root).replace("\\", "/"))
             self.paths = paths
             self.targets = targets
 
@@ -168,6 +175,8 @@ class IndexedDataset(Dataset):
         self._by_class = {}
         for i, g in enumerate(self.targets):
             self._by_class.setdefault(g, []).append(i)
+        # official-split reference -> sample index
+        self._ref_to_index = {r: i for i, r in enumerate(self.source_refs)}
 
     def __len__(self):
         return len(self.targets)
@@ -186,6 +195,14 @@ class IndexedDataset(Dataset):
 
     def indices_for_class(self, global_label):
         return self._by_class.get(int(global_label), [])
+
+    def index_for_ref(self, ref):
+        """Resolve an official-split reference (CIFAR int index or data-root-
+        relative image path) to this dataset's sample index."""
+        return self._ref_to_index[ref]
+
+    def has_ref(self, ref):
+        return ref in self._ref_to_index
 
     @property
     def classes_present(self):

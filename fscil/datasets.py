@@ -218,3 +218,17 @@ def load_official_split(spec: DatasetSpec, cifar_targets=None):
         "session_classes": remapped_sessions,
         "session_samples": session_samples,
     }
+
+
+def official_session_refs(spec: DatasetSpec, plan: dict, session_idx: int):
+    """The exact support-sample references for one session, typed to match
+    IndexedDataset.source_refs: int CIFAR indices, or data-root-relative image
+    paths. Feed each through dataset.index_for_ref(...) to get a sample index.
+    Use for reproducible few-shot support (sessions >= 1)."""
+    refs = []
+    for line in plan["session_samples"][session_idx]:
+        if spec.loader == "cifar100":
+            refs.append(int(line))
+        else:
+            refs.append(line.replace("\\", "/"))
+    return refs

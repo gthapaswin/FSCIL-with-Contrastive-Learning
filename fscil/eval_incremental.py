@@ -51,6 +51,7 @@ from torch.utils.data import DataLoader
 
 from fscil.config import Config
 from fscil.data import build_dataset, base_transforms, get_official_split, make_fantasy_views, load_plan
+from fscil.datasets import official_session_refs
 from fscil.backbone import build_backbone
 from fscil.pipeline import StagStiModel
 from fscil.train_session0 import get_device, set_seed
@@ -58,21 +59,16 @@ from fscil.train_session0 import get_device, set_seed
 import torchvision
 
 
-def build_new_class_prototypes(backbone, stag_model, full_train_ds, class_list, device, shot, M, rng):
-    """class_list: list of RAW CIFAR labels introduced this session.
-    Returns P_new: (way, d'), A_tilde_new: (way, way)."""
-    way = len(class_list)
+def _prototypes_from_indices(backbone, stag_model, full_train_ds, per_class_indices, device, M):
+    """per_class_indices: list (one entry per class, in class order) of the
+    sample indices to use as that class's support shots. Runs Stages 1-6 to
+    produce P_new (way, d') and A_tilde_new (way, way)."""
     per_class_views = []
-    for c in class_list:
-        idxs = full_train_ds.indices_for_class(c)
-        chosen = rng.sample(idxs, shot) if len(idxs) >= shot else [rng.choice(idxs) for _ in range(shot)]
-        shot_views = []
-        for i in chosen:
-            pil = full_train_ds.get_pil(i)
-            views = make_fantasy_views(pil, M)          # (M, 3, H, W)
-            shot_views.append(views)
-        per_class_views.append(torch.stack(shot_views, dim=0))   # (shot, M, 3, H, W)
+    for idxs in per_class_indices:
+        shot_views = [make_fantasy_views(full_train_ds.get_pil(i), M) for i in idxs]  # each (M,3,H,W)
+        per_class_views.append(torch.stack(shot_views, dim=0))                          # (shot,M,3,H,W)
     support_imgs = torch.stack(per_class_views, dim=0).to(device)  # (way, shot, M, 3, H, W)
+    way, shot = support_imgs.shape[0], support_imgs.shape[1]
 
     with torch.no_grad():
         flat = support_imgs.view(way * shot * M, *support_imgs.shape[-3:])
@@ -87,6 +83,29 @@ def build_new_class_prototypes(backbone, stag_model, full_train_ds, class_list, 
         _, h_enriched, A_soft = stag_model.encode_prototypes(node_feats, class_ids, view_ids)
         P_new, A_tilde_new = stag_model.build_prototypes(h_enriched, A_soft, class_ids, way)
     return P_new, A_tilde_new
+
+
+def build_new_class_prototypes(backbone, stag_model, full_train_ds, class_list, device, shot, M, rng):
+    """Random k-shot support (used for the base session). class_list: GLOBAL
+    labels introduced this session. Returns P_new, A_tilde_new."""
+    per_class_indices = []
+    for c in class_list:
+        idxs = full_train_ds.indices_for_class(c)
+        chosen = rng.sample(idxs, shot) if len(idxs) >= shot else [rng.choice(idxs) for _ in range(shot)]
+        per_class_indices.append(chosen)
+    return _prototypes_from_indices(backbone, stag_model, full_train_ds, per_class_indices, device, M)
+
+
+def build_new_class_prototypes_official(backbone, stag_model, full_train_ds, refs, class_list, device, M):
+    """Reproducible support using the EXACT few-shot samples from the official
+    split file (fscil.datasets.official_session_refs). `refs` are grouped by
+    class and ordered to match `class_list`."""
+    by_class = {c: [] for c in class_list}
+    for ref in refs:
+        idx = full_train_ds.index_for_ref(ref)
+        by_class[full_train_ds.targets[idx]].append(idx)
+    per_class_indices = [by_class[c] for c in class_list]
+    return _prototypes_from_indices(backbone, stag_model, full_train_ds, per_class_indices, device, M)
 
 
 def write_new_memory_rows(stag_model, P_new, A_tilde_new, session_idx, device):
@@ -163,6 +182,9 @@ def main():
     parser.add_argument("--dataset", type=str, default="cifar100",
                          help="cifar100 | miniimagenet | cub200")
     parser.add_argument("--shot", type=int, default=None)
+    parser.add_argument("--random_support", action="store_true",
+                         help="Sample incremental support randomly instead of using the exact "
+                              "official few-shot samples (default: use official samples).")
     parser.add_argument("--backbone_ckpt", type=str, default=None,
                          help="Path to backbone checkpoint. Defaults to checkpoints/backbone_base.pt "
                               "(final-epoch). Pass checkpoints/backbone_base_best.pt to use the best-val "
@@ -216,12 +238,22 @@ def main():
           f"(session 0 = {len(base_classes)} base classes, sessions 1-{spec.num_incremental_sessions} "
           f"= {spec.way}-way {shot}-shot) ===")
 
+    use_official = not args.random_support
     for session_idx, class_list in enumerate(all_sessions):
         t0 = time.time()
-        P_new, A_tilde_new = build_new_class_prototypes(
-            backbone, stag_model, full_train_ds, class_list, device, shot=shot,
-            M=Config.num_views, rng=rng,
-        )
+        # Incremental sessions (>=1) use the exact official few-shot samples for
+        # reproducibility; the base session builds its prototypes from a random
+        # k-shot draw of the abundant base training data.
+        if use_official and session_idx >= 1:
+            refs = official_session_refs(spec, plan, session_idx)
+            P_new, A_tilde_new = build_new_class_prototypes_official(
+                backbone, stag_model, full_train_ds, refs, class_list, device, M=Config.num_views,
+            )
+        else:
+            P_new, A_tilde_new = build_new_class_prototypes(
+                backbone, stag_model, full_train_ds, class_list, device, shot=shot,
+                M=Config.num_views, rng=rng,
+            )
         H_new_rows = write_new_memory_rows(stag_model, P_new, A_tilde_new, session_idx, device)
 
         H = torch.cat([H, H_new_rows], dim=0)
