@@ -37,6 +37,10 @@ from fscil.datasets import get_spec, load_official_split, _read_lines, _session_
 # Stable public mirror for CUB-200-2011 (Caltech Vision).
 CUB_URL = "https://data.caltech.edu/records/65de6-vp158/files/CUB_200_2011.tgz"
 
+# CEC (Zhang et al., CVPR 2021) Google Drive folder holding miniimagenet.tar +
+# CUB_200_2011.tgz, arranged to match the vendored split index files.
+CEC_DRIVE_FOLDER = "https://drive.google.com/drive/folders/11LxZCQj2FRCs0JTsf_dafvTHqFn2yGSN"
+
 
 def _download(url, dest):
     print(f"  downloading {url}\n           -> {dest}")
@@ -73,34 +77,76 @@ def prepare_cub200(force=False):
     print(f"[cub200] done -> {target}")
 
 
+def _extract_any(archive, dest):
+    """Extract a .tar / .tar.gz / .tgz / .zip into dest."""
+    print(f"[extract] {archive} -> {dest}")
+    if archive.endswith((".tar", ".tar.gz", ".tgz")):
+        mode = "r:gz" if archive.endswith((".gz", ".tgz")) else "r:"
+        with tarfile.open(archive, mode) as tf:
+            tf.extractall(dest)
+    elif archive.endswith(".zip"):
+        import zipfile
+        with zipfile.ZipFile(archive) as zf:
+            zf.extractall(dest)
+    else:
+        raise ValueError(f"Unknown archive type: {archive}")
+
+
+def _normalize_miniimagenet_dirname():
+    """The split files expect data/MINI-ImageNet/train/...; if the tar produced
+    a differently-cased/spelled top folder, rename it into place."""
+    target = os.path.join(_DATA, "MINI-ImageNet")
+    if os.path.isdir(os.path.join(target, "train")):
+        return
+    for cand in ("miniimagenet", "mini_imagenet", "miniImageNet", "MiniImagenet"):
+        p = os.path.join(_DATA, cand)
+        if os.path.isdir(p) and os.path.isdir(os.path.join(p, "train")):
+            print(f"[miniimagenet] renaming {cand} -> MINI-ImageNet")
+            os.rename(p, target)
+            return
+
+
 def prepare_miniimagenet(gdrive_id=None, force=False):
     target = os.path.join(_DATA, "MINI-ImageNet")
     if os.path.isdir(os.path.join(target, "train")) and not force:
         print(f"[miniimagenet] already present at {target}")
         return
-    if gdrive_id:
-        try:
-            import gdown  # type: ignore
-        except ImportError:
-            print("[miniimagenet] `pip install gdown` first, then re-run with --gdrive-id.")
-            return
-        os.makedirs(_DATA, exist_ok=True)
-        out = os.path.join(_DATA, "miniimagenet.zip")
-        gdown.download(id=gdrive_id, output=out, quiet=False)
-        print(f"[miniimagenet] downloaded to {out}; extract it so you get "
-              f"{target}/train/<wnid>/<img>.jpg")
-        import zipfile
-        with zipfile.ZipFile(out) as zf:
-            zf.extractall(_DATA)
-        print("[miniimagenet] extracted. Verify the layout with --verify miniimagenet.")
+    try:
+        import gdown  # type: ignore
+    except ImportError:
+        gdown = None
+
+    os.makedirs(_DATA, exist_ok=True)
+    if gdown is not None:
+        if gdrive_id:
+            out = os.path.join(_DATA, "miniimagenet.tar")
+            gdown.download(id=gdrive_id, output=out, quiet=False)
+            _extract_any(out, _DATA)
+        else:
+            # pull the whole CEC folder, then extract the miniimagenet tar
+            dl = os.path.join(_DATA, "_cec_download")
+            print(f"[miniimagenet] downloading CEC drive folder -> {dl}")
+            gdown.download_folder(url=CEC_DRIVE_FOLDER, output=dl, quiet=False,
+                                  use_cookies=False)
+            tar = os.path.join(dl, "miniimagenet.tar")
+            if os.path.exists(tar):
+                _extract_any(tar, _DATA)
+            else:
+                print(f"[miniimagenet] miniimagenet.tar not found under {dl}; "
+                      "extract it manually into data/.")
+        _normalize_miniimagenet_dirname()
+        if os.path.isdir(os.path.join(target, "train")):
+            print(f"[miniimagenet] ready at {target}. Verify with --verify miniimagenet.")
+        else:
+            print(f"[miniimagenet] extracted but {target}/train not found -- rename the "
+                  "extracted folder to MINI-ImageNet, then --verify miniimagenet.")
         return
-    print("[miniimagenet] No auto-download (the FSCIL miniImageNet is distributed via")
-    print("  Google Drive by the CEC / CLOSER authors). Two options:")
-    print("   1) Get the shareable file/folder ID and re-run:")
-    print("        python scripts/prepare_data.py --dataset miniimagenet --gdrive-id <ID>")
-    print("   2) Download manually and arrange as:")
-    print(f"        {target}/train/<wnid>/<img>.jpg")
-    print("  Reference: CEC repo (icoz69/CEC-CVPR2021) README -> data links.")
+
+    print("[miniimagenet] `pip install gdown` for automatic download, or do it manually:")
+    print(f"   1) Open {CEC_DRIVE_FOLDER}")
+    print("   2) Download miniimagenet.tar, then:  tar -xvf miniimagenet.tar -C data/")
+    print(f"   3) Ensure the layout is {target}/train/<wnid>/<img>.jpg")
+    print("   4) python scripts/prepare_data.py --verify miniimagenet")
 
 
 def verify(dataset_key):
