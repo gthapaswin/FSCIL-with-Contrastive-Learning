@@ -303,6 +303,38 @@ def build_dataset(train, allowed_globals=None, transform=None, spec=None, plan=N
 
 
 # ---------------------------------------------------------------------------
+# CLOSER Phase-A: SimCLR-style contrastive transform + two-view dataset
+# ---------------------------------------------------------------------------
+def contrastive_transforms(spec=None):
+    spec = spec or get_spec(Config.dataset)
+    size = spec.image_size
+    return T.Compose([
+        T.RandomResizedCrop(size, scale=(0.2, 1.0)),
+        T.RandomHorizontalFlip(),
+        T.RandomApply([T.ColorJitter(0.4, 0.4, 0.4, 0.1)], p=0.8),
+        T.RandomGrayscale(p=0.2),
+        T.ToTensor(),
+        _normalize(),
+    ])
+
+
+class TwoViewDataset(Dataset):
+    """Wraps an IndexedDataset to return two independent augmented views of the
+    same image plus its global label -- for self-supervised contrastive Phase A."""
+
+    def __init__(self, base_ds: IndexedDataset, transform):
+        self.ds = base_ds
+        self.transform = transform
+
+    def __len__(self):
+        return len(self.ds)
+
+    def __getitem__(self, idx):
+        pil = self.ds.get_pil(idx)
+        return self.transform(pil), self.transform(pil), self.ds.targets[idx]
+
+
+# ---------------------------------------------------------------------------
 # Backward-compatible alias (older code / imports referenced IndexedCIFAR100)
 # ---------------------------------------------------------------------------
 def IndexedCIFAR100(root, train, class_subset, transform, download=True):

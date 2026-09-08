@@ -43,9 +43,36 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
 from fscil.config import Config
-from fscil.data import build_dataset, base_transforms, get_official_split, EpisodeSampler
+from fscil.data import (build_dataset, base_transforms, get_official_split, EpisodeSampler,
+                        contrastive_transforms, TwoViewDataset)
 from fscil.backbone import BackboneWithHead, build_backbone
 from fscil.pipeline import StagStiModel
+
+
+# ---------------------------------------------------------------------------
+# CLOSER Phase-A losses (self-supervised spread + inter-class compactness)
+# ---------------------------------------------------------------------------
+def nt_xent(z1, z2, temp):
+    """SimCLR NT-Xent over two views (z1, z2 are L2-normalized, (N, d))."""
+    N = z1.size(0)
+    z = torch.cat([z1, z2], dim=0)                     # (2N, d)
+    sim = torch.matmul(z, z.T) / temp                    # (2N, 2N)
+    sim.fill_diagonal_(float("-inf"))
+    targets = (torch.arange(2 * N, device=z.device) + N) % (2 * N)  # positive = other view
+    return F.cross_entropy(sim, targets)
+
+
+def interclass_compactness(feat, labels):
+    """Mean pairwise distance between (L2-normalized) class means -- minimizing
+    it pulls classes CLOSER, preserving shared features for novel transfer."""
+    uniq = labels.unique()
+    if uniq.numel() < 2:
+        return feat.new_zeros(())
+    means = torch.stack([feat[labels == c].mean(0) for c in uniq])
+    means = F.normalize(means, dim=-1)
+    d = torch.cdist(means, means)
+    C = means.size(0)
+    return d.sum() / (C * (C - 1))
 
 
 def get_device(pref="auto"):
@@ -349,10 +376,81 @@ def train_stag_sti(backbone, base_classes, device, epochs, out_path):
     return stag_model, history
 
 
+def pretrain_backbone_closer(base_classes, device, epochs, out_path):
+    """CLOSER-style Phase A: CE + self-supervised NT-Xent (spread) + inter-class
+    compactness (transfer). Two augmented views per image."""
+    two_tf = contrastive_transforms()
+    base_train = build_dataset(train=True, allowed_globals=base_classes, transform=None)
+    train_ds = TwoViewDataset(base_train, two_tf)
+    test_ds = build_dataset(train=False, allowed_globals=base_classes,
+                            transform=base_transforms(train=False))
+    train_loader = DataLoader(train_ds, batch_size=Config.backbone_pretrain_batch_size,
+                              shuffle=True, num_workers=Config.num_workers, drop_last=True)
+    test_loader = DataLoader(test_ds, batch_size=256, shuffle=False, num_workers=Config.num_workers)
+
+    model = BackboneWithHead(num_base_classes=len(base_classes), out_dim=Config.backbone_out_dim,
+                             backbone_type=Config.backbone_type, ssl_dim=Config.closer_ssl_dim).to(device)
+    opt = torch.optim.SGD(model.parameters(), lr=Config.backbone_pretrain_lr, momentum=0.9,
+                          weight_decay=Config.backbone_pretrain_weight_decay, nesterov=True)
+    sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=epochs)
+    print(f"\n=== Phase A (CLOSER) on {len(base_classes)} base classes for {epochs} epochs "
+          f"(lambda_ssl={Config.closer_lambda_ssl}, lambda_close={Config.closer_lambda_close}) ===")
+
+    history = {"train_loss": [], "val_loss": [], "train_acc": [], "val_acc": []}
+    best_val_acc, best_epoch, patience = 0.0, 0, 0
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+    best_path = out_path.replace(".pt", "_best.pt")
+
+    for epoch in range(1, epochs + 1):
+        model.train(); t0 = time.time()
+        tot, cor, seen = 0.0, 0, 0
+        for v1, v2, labels in train_loader:
+            v1, v2, labels = v1.to(device), v2.to(device), labels.to(device)
+            logits1, feat1 = model(v1)
+            _, feat2 = model(v2)
+            l_ce = F.cross_entropy(logits1, labels, label_smoothing=Config.label_smoothing)
+            l_ssl = nt_xent(model.project_ssl(feat1), model.project_ssl(feat2), Config.closer_ssl_temp)
+            l_close = interclass_compactness(feat1, labels)
+            loss = l_ce + Config.closer_lambda_ssl * l_ssl + Config.closer_lambda_close * l_close
+            opt.zero_grad(); loss.backward(); opt.step()
+            tot += loss.item() * v1.size(0); cor += (logits1.argmax(1) == labels).sum().item(); seen += v1.size(0)
+        sched.step()
+        train_loss, train_acc = tot / seen, cor / seen
+
+        model.eval(); vl, vc, vt = 0.0, 0, 0
+        with torch.no_grad():
+            for imgs, labels in test_loader:
+                imgs, labels = imgs.to(device), labels.to(device)
+                logits, _ = model(imgs)
+                vl += F.cross_entropy(logits, labels).item() * imgs.size(0)
+                vc += (logits.argmax(1) == labels).sum().item(); vt += imgs.size(0)
+        val_loss, val_acc = vl / vt, vc / vt
+        for k, v in [("train_loss", train_loss), ("val_loss", val_loss),
+                     ("train_acc", train_acc), ("val_acc", val_acc)]:
+            history[k].append(v)
+        improved = val_acc > best_val_acc
+        if improved:
+            best_val_acc, best_epoch, patience = val_acc, epoch, 0
+            torch.save(model.backbone.state_dict(), best_path)
+        else:
+            patience += 1
+        print(f"[CLOSER] epoch {epoch:03d}/{epochs} | loss {train_loss:.4f} (val {val_loss:.4f}) "
+              f"| train_acc {train_acc*100:.2f}% | val_acc {val_acc*100:.2f}%{' *' if improved else ''} "
+              f"| {time.time()-t0:.1f}s")
+        if patience >= Config.early_stop_patience:
+            print(f"[CLOSER] early stop (best {best_val_acc*100:.2f}% @ {best_epoch})"); break
+
+    torch.save(model.backbone.state_dict(), out_path)
+    print(f"Saved CLOSER backbone -> {out_path} (best {best_val_acc*100:.2f}% @ {best_epoch})")
+    return model.backbone, history
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset", type=str, default="cifar100",
                          help="cifar100 | miniimagenet | cub200")
+    parser.add_argument("--closer", action="store_true",
+                         help="Use the CLOSER-style Phase-A objective (transfer-friendly base).")
     parser.add_argument("--ablate", nargs="+", default=None,
                          choices=["none", "supcon", "topology", "agedecay"],
                          help="Disable STAG-STI components for the ablation study "
@@ -365,6 +463,11 @@ def main():
 
     spec = Config.apply_dataset(args.dataset)
     ablations = Config.apply_ablation(args.ablate)
+    if args.closer:
+        # namespace the whole run so the CLOSER variant never clobbers baseline
+        Config.use_closer = True
+        Config.ckpt_dir = os.path.join(Config.ckpt_dir, "closer")
+        Config.backbone_ckpt_dir = os.path.join(Config.backbone_ckpt_dir, "closer")
     set_seed(Config.seed)
     device = get_device(Config.device)
     print(f"Using device: {device}")
@@ -389,6 +492,9 @@ def main():
         backbone = build_backbone(Config.backbone_type, out_dim=Config.backbone_out_dim).to(device)
         backbone.load_state_dict(torch.load(backbone_ckpt, map_location=device))
         print(f"Loaded existing backbone checkpoint from {backbone_ckpt}")
+    elif args.closer:
+        backbone, phase_a_history = pretrain_backbone_closer(base_classes, device, args.backbone_epochs, backbone_ckpt)
+        full_history["phase_a"] = phase_a_history
     else:
         backbone, phase_a_history = pretrain_backbone(base_classes, device, args.backbone_epochs, backbone_ckpt)
         full_history["phase_a"] = phase_a_history

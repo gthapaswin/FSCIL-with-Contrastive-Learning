@@ -82,13 +82,21 @@ class BackboneWithHead(nn.Module):
     classifier over the base classes. The classifier head is discarded once
     the backbone is frozen for Phase B."""
 
-    def __init__(self, num_base_classes, out_dim=512, backbone_type="cifar_resnet18"):
+    def __init__(self, num_base_classes, out_dim=512, backbone_type="cifar_resnet18", ssl_dim=None):
         super().__init__()
         self.backbone = build_backbone(backbone_type, out_dim=out_dim)
         self.dropout = nn.Dropout(0.3)
         self.classifier = nn.Linear(out_dim, num_base_classes)
+        # optional self-supervised projection head (CLOSER Phase-A mode)
+        self.ssl_head = None
+        if ssl_dim:
+            self.ssl_head = nn.Sequential(nn.Linear(out_dim, out_dim), nn.ReLU(inplace=True),
+                                          nn.Linear(out_dim, ssl_dim))
 
     def forward(self, x):
         feat = self.backbone(x)
         logits = self.classifier(self.dropout(feat))
         return logits, feat
+
+    def project_ssl(self, feat):
+        return torch.nn.functional.normalize(self.ssl_head(feat), dim=-1)

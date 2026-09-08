@@ -102,6 +102,17 @@ class Config:
     device = "auto"             # "auto" picks mps -> cuda -> cpu
     log_every = 10
 
+    # ---------------- CLOSER-style base representation (Phase A) ----------------
+    # Improves transfer of frozen features to novel classes (Oh et al., ECCV'24):
+    # spread with a self-supervised contrastive term AND explicitly reduce
+    # inter-class distance so shared low/mid features stay reusable. Enabled by
+    # `--closer` on train_session0; disabled by default (needs a full retrain).
+    use_closer = False
+    closer_lambda_ssl = 0.5       # weight of the self-supervised NT-Xent term
+    closer_lambda_close = 0.1     # weight of the inter-class compactness term
+    closer_ssl_temp = 0.1         # NT-Xent temperature
+    closer_ssl_dim = 128          # SSL projection-head output dim
+
     # ---------------- Ablations (slide-17 component study) ----------------
     # Set via Config.apply_ablation([...]). Each disables one STAG-STI piece:
     #   supcon   -> no contrastive pre-conditioning (lambda_supcon = 0)
