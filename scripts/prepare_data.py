@@ -165,6 +165,25 @@ def verify(dataset_key):
               f"sessions={[len(s) for s in plan['session_classes']]}  {'OK' if ok else 'MISMATCH'}")
         return ok
 
+    # mini_csv (miniImageNet): flat images/ store keyed by filename
+    if spec.loader == "mini_csv":
+        img_dir = os.path.join(_DATA, spec.data_subdir, "images")
+        missing = total = 0
+        for path in _session_files(spec):
+            for line in _read_lines(path):
+                total += 1
+                fname = line.replace("\\", "/").split("/")[-1]
+                if not os.path.exists(os.path.join(img_dir, fname)):
+                    if missing < 5:
+                        print(f"  MISSING: images/{fname}")
+                    missing += 1
+        print(f"  checked {total} referenced files against {img_dir}, missing {missing}")
+        if missing == 0:
+            plan = load_official_split(spec)
+            print(f"  class_order={len(plan['class_order'])}/{spec.num_total_classes} "
+                  f"sessions={[len(s) for s in plan['session_classes']]}  OK")
+        return missing == 0
+
     # imagefolder datasets: every referenced relative path must exist under data/
     missing = 0
     total = 0

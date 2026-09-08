@@ -98,8 +98,8 @@ DATASET_SPECS = {
         key="miniimagenet", pretty_name="miniImageNet",
         image_size=84, mean=IMAGENET_MEAN, std=IMAGENET_STD,
         num_base_classes=60, way=5, shot=5, num_incremental_sessions=8,
-        backbone="resnet18", split_subdir="mini_imagenet", loader="imagefolder",
-        data_subdir="MINI-ImageNet",
+        backbone="resnet18", split_subdir="mini_imagenet", loader="mini_csv",
+        data_subdir="miniimagenet",
     ),
     "cub200": DatasetSpec(
         key="cub200", pretty_name="CUB-200-2011",
@@ -155,7 +155,7 @@ def _class_key_from_line(spec: DatasetSpec, line: str, cifar_targets=None):
     if spec.loader == "cifar100":
         idx = int(line)
         return int(cifar_targets[idx])
-    # imagefolder: path like ".../<split>/<class>/<img>.jpg" -> class folder
+    # imagefolder / mini_csv: path ".../<class or wnid>/<img>.jpg" -> parent = class
     parts = line.replace("\\", "/").split("/")
     return parts[-2]
 
@@ -235,6 +235,9 @@ def official_session_refs(spec: DatasetSpec, plan: dict, session_idx: int):
     for line in plan["session_samples"][session_idx]:
         if spec.loader == "cifar100":
             refs.append(int(line))
+        elif spec.loader == "mini_csv":
+            # flat images/ store keyed by filename -> ref is the basename
+            refs.append(line.replace("\\", "/").split("/")[-1])
         else:
             refs.append(line.replace("\\", "/"))
     return refs

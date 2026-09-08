@@ -180,7 +180,35 @@ class IndexedDataset(Dataset):
         # image path. Lets a split-file line resolve to a sample index.
         self.source_refs = []
 
-        if self.loader == "cifar100":
+        if self.loader == "mini_csv":
+            # miniImageNet packaging: flat images/ + train.csv/test.csv mapping
+            # filename -> wnid. The wnid is the class key (matches the split
+            # files' parent-folder key); the ref is the bare filename.
+            root = os.path.join(Config.data_root, spec.data_subdir)
+            img_dir = os.path.join(root, "images")
+            csv_name = "train.csv" if train else "test.csv"
+            csv_path = os.path.join(root, csv_name)
+            if not os.path.exists(csv_path):
+                csv_path = os.path.join(root, "split", csv_name)
+            paths, targets = [], []
+            with open(csv_path) as f:
+                header = f.readline()  # filename,label
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    fname, wnid = line.split(",")[:2]
+                    g = key_to_global.get(wnid)
+                    if g is None:
+                        continue
+                    if allowed is not None and g not in allowed:
+                        continue
+                    paths.append(os.path.join(img_dir, fname))
+                    targets.append(g)
+                    self.source_refs.append(fname)
+            self.paths = paths
+            self.targets = targets
+        elif self.loader == "cifar100":
             base = torchvision.datasets.CIFAR100(root=Config.data_root, train=train, download=download)
             data, targets = [], []
             for orig_idx, (img, native_label) in enumerate(zip(base.data, base.targets)):

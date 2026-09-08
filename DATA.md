@@ -16,9 +16,16 @@ transfer test. All use the **official CEC/FACT class splits** (vendored under
 ```
 data/
   cifar-100-python/                       # torchvision auto-download (present)
-  MINI-ImageNet/train/<wnid>/<img>.jpg    # miniImageNet, FSCIL layout
+  miniimagenet/                           # miniImageNet (CEC packaging)
+    images/<wnid########>.jpg             #   flat image store
+    train.csv  test.csv                   #   filename,label (wnid) splits
   CUB_200_2011/images/<class>/<img>.jpg   # CUB-200-2011
 ```
+
+The CEC miniImageNet tarball uses a flat `images/` folder plus `train.csv` /
+`test.csv` (500 train + 100 test per class); the loader (`mini_csv` backend)
+resolves each official split-file line to `images/<basename>` and takes the
+class from the wnid. CUB uses one `images/` tree with `train_test_split.txt`.
 
 `data/` is git-ignored — datasets are never committed. Only the small split
 index files (`fscil/splits/`) are tracked.
