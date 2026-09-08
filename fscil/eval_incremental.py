@@ -59,10 +59,8 @@ from fscil.train_session0 import get_device, set_seed
 import torchvision
 
 
-def _prototypes_from_indices(backbone, stag_model, full_train_ds, per_class_indices, device, M):
-    """per_class_indices: list (one entry per class, in class order) of the
-    sample indices to use as that class's support shots. Runs Stages 1-6 to
-    produce P_new (way, d') and A_tilde_new (way, way)."""
+def _prototypes_one_group(backbone, stag_model, full_train_ds, per_class_indices, device, M):
+    """Build prototypes for a small group of classes in a single graph."""
     per_class_views = []
     for idxs in per_class_indices:
         shot_views = [make_fantasy_views(full_train_ds.get_pil(i), M) for i in idxs]  # each (M,3,H,W)
@@ -82,6 +80,32 @@ def _prototypes_from_indices(backbone, stag_model, full_train_ds, per_class_indi
     with torch.no_grad():
         _, h_enriched, A_soft = stag_model.encode_prototypes(node_feats, class_ids, view_ids)
         P_new, A_tilde_new = stag_model.build_prototypes(h_enriched, A_soft, class_ids, way)
+    return P_new, A_tilde_new
+
+
+def _prototypes_from_indices(backbone, stag_model, full_train_ds, per_class_indices, device, M):
+    """per_class_indices: list (one entry per class, in class order) of the
+    sample indices to use as that class's support shots. Runs Stages 1-6.
+
+    The class graph is built in chunks of at most Config.episode_way classes --
+    the scale the model was trained on. A single monolithic graph over a large
+    base session (e.g. 100 classes -> 400 nodes) is both out-of-distribution
+    for the GATv2 (trained on ~15-way episodes) and numerically unreliable on
+    some backends; chunking fixes both. This does not change the memory write:
+    new-class rows are H = Phi(P) regardless of the class adjacency (see
+    write_new_memory_rows / STIMemory.new_class_mask), so A_tilde here is a
+    placeholder for brand-new classes."""
+    n = len(per_class_indices)
+    chunk = max(1, int(getattr(Config, "episode_way", 15)))
+    if n <= chunk:
+        return _prototypes_one_group(backbone, stag_model, full_train_ds, per_class_indices, device, M)
+    P_parts = []
+    for start in range(0, n, chunk):
+        P_g, _ = _prototypes_one_group(backbone, stag_model, full_train_ds,
+                                       per_class_indices[start:start + chunk], device, M)
+        P_parts.append(P_g)
+    P_new = torch.cat(P_parts, dim=0)                       # (n, d')
+    A_tilde_new = torch.zeros(n, n, device=device)          # unused for new-class writes
     return P_new, A_tilde_new
 
 

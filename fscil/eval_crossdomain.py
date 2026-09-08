@@ -99,6 +99,9 @@ def evaluate_crossdomain(backbone, stag_model, class_to_source, class_order, H, 
     class_to_source: {global_label -> (test_dataset, [sample indices])}."""
     pos_map = {c: i for i, c in enumerate(class_order)}
     base_set = set(base_globals)
+    # per-CLASS novel mask over the columns of `logits` (aligned to class_order)
+    novel_col = torch.tensor([c not in base_set for c in class_order],
+                             dtype=torch.float, device=device)
     correct = total = 0
     base_c = base_t = nov_c = nov_t = 0
 
@@ -117,9 +120,7 @@ def evaluate_crossdomain(backbone, stag_model, class_to_source, class_order, H, 
         z_q = stag_model.projection(feats)
         logits = stag_model.classify_query(z_q, H)
         if Config.novel_logit_bias != 0.0:
-            novel_mask = torch.tensor([c not in base_set for _, _, c in chunk],
-                                      dtype=torch.float, device=device)
-            logits = logits + novel_mask * Config.novel_logit_bias
+            logits = logits + novel_col * Config.novel_logit_bias  # broadcast over columns
         preds = logits.argmax(1)
         hit = (preds == true_pos)
         correct += hit.sum().item(); total += len(chunk)
