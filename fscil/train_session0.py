@@ -43,8 +43,8 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
 from fscil.config import Config
-from fscil.data import IndexedCIFAR100, base_transforms, get_base_novel_split, EpisodeSampler
-from fscil.backbone import BackboneWithHead, CifarResNet18
+from fscil.data import build_dataset, base_transforms, get_official_split, EpisodeSampler
+from fscil.backbone import BackboneWithHead, build_backbone
 from fscil.pipeline import StagStiModel
 
 
@@ -96,16 +96,17 @@ def mixup_cutmix_batch(imgs, labels, num_classes, device):
 # Phase A: backbone pretraining on base classes (plain classification)
 # ---------------------------------------------------------------------------
 def pretrain_backbone(base_classes, device, epochs, out_path):
-    train_ds = IndexedCIFAR100(Config.data_root, train=True, class_subset=base_classes,
-                                transform=base_transforms(train=True))
-    test_ds = IndexedCIFAR100(Config.data_root, train=False, class_subset=base_classes,
-                               transform=base_transforms(train=False))
+    train_ds = build_dataset(train=True, allowed_globals=base_classes,
+                             transform=base_transforms(train=True))
+    test_ds = build_dataset(train=False, allowed_globals=base_classes,
+                            transform=base_transforms(train=False))
     train_loader = DataLoader(train_ds, batch_size=Config.backbone_pretrain_batch_size,
                                shuffle=True, num_workers=Config.num_workers, drop_last=True)
     test_loader = DataLoader(test_ds, batch_size=256, shuffle=False,
                               num_workers=Config.num_workers)
 
-    model = BackboneWithHead(num_base_classes=len(base_classes), out_dim=Config.backbone_out_dim).to(device)
+    model = BackboneWithHead(num_base_classes=len(base_classes), out_dim=Config.backbone_out_dim,
+                             backbone_type=Config.backbone_type).to(device)
     opt = torch.optim.SGD(model.parameters(), lr=Config.backbone_pretrain_lr,
                            momentum=0.9, weight_decay=Config.backbone_pretrain_weight_decay, nesterov=True)
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=epochs)
@@ -274,10 +275,10 @@ def run_episode(backbone, stag_model, sampler, device, optimizer=None):
 
 
 def train_stag_sti(backbone, base_classes, device, epochs, out_path):
-    train_ds = IndexedCIFAR100(Config.data_root, train=True, class_subset=base_classes,
-                                transform=base_transforms(train=True))
-    val_ds = IndexedCIFAR100(Config.data_root, train=False, class_subset=base_classes,
-                              transform=base_transforms(train=False))
+    train_ds = build_dataset(train=True, allowed_globals=base_classes,
+                             transform=base_transforms(train=True))
+    val_ds = build_dataset(train=False, allowed_globals=base_classes,
+                           transform=base_transforms(train=False))
 
     train_sampler = EpisodeSampler(train_ds, way=Config.episode_way, shot=Config.episode_shot,
                                     query=Config.episode_query, seed=Config.seed)
@@ -350,25 +351,31 @@ def train_stag_sti(backbone, base_classes, device, epochs, out_path):
 
 def main():
     parser = argparse.ArgumentParser()
+    parser.add_argument("--dataset", type=str, default="cifar100",
+                         help="cifar100 | miniimagenet | cub200")
     parser.add_argument("--backbone_epochs", type=int, default=Config.backbone_pretrain_epochs)
     parser.add_argument("--main_epochs", type=int, default=Config.main_epochs)
     parser.add_argument("--skip_backbone_pretrain", action="store_true",
                          help="Skip Phase A and load an existing checkpoint instead.")
     args = parser.parse_args()
 
+    spec = Config.apply_dataset(args.dataset)
     set_seed(Config.seed)
     device = get_device(Config.device)
     print(f"Using device: {device}")
+    print(f"Dataset: {spec.pretty_name} | backbone: {Config.backbone_type} | "
+          f"{spec.num_base_classes} base + {spec.num_incremental_sessions}x{spec.way}-way "
+          f"{spec.shot}-shot | output -> {Config.ckpt_dir}")
 
-    base_classes, incremental_sessions = get_base_novel_split()
+    base_classes, incremental_sessions = get_official_split(spec)
     print(f"Base classes ({len(base_classes)}): {base_classes}")
-    print(f"Incremental sessions (8 x 5-way): {incremental_sessions}")
+    print(f"Incremental sessions ({spec.num_incremental_sessions} x {spec.way}-way): {incremental_sessions}")
 
     backbone_ckpt = os.path.join(Config.ckpt_dir, "backbone_base.pt")
     full_history = {}
 
     if args.skip_backbone_pretrain and os.path.exists(backbone_ckpt):
-        backbone = CifarResNet18(out_dim=Config.backbone_out_dim).to(device)
+        backbone = build_backbone(Config.backbone_type, out_dim=Config.backbone_out_dim).to(device)
         backbone.load_state_dict(torch.load(backbone_ckpt, map_location=device))
         print(f"Loaded existing backbone checkpoint from {backbone_ckpt}")
     else:

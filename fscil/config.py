@@ -9,13 +9,19 @@ import os
 
 class Config:
     # ---------------- Paths ----------------
-    data_root = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
-    ckpt_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "checkpoints")
-    log_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "logs")
+    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    data_root = os.path.join(repo_root, "data")
+    # ckpt_dir / log_dir are namespaced per dataset by apply_dataset(); the
+    # values below are the cifar100 defaults so importing Config without an
+    # explicit apply_dataset() call still behaves like the original pipeline.
+    ckpt_dir = os.path.join(repo_root, "checkpoints", "cifar100")
+    log_dir = os.path.join(repo_root, "logs", "cifar100")
 
     # ---------------- Dataset / base-novel split ----------------
-    # Fixed-seed random 60/40 split (60 base classes; the other 40 are
-    # shuffled and cut into 8 groups of 5 for the incremental sessions).
+    # Which benchmark is active. Set via Config.apply_dataset("miniimagenet")
+    # etc. -- see fscil/datasets.py for the registry. The official CEC/FACT
+    # class splits (vendored under fscil/splits/) are used for reproducibility.
+    dataset = "cifar100"
     num_base_classes = 60
     num_novel_classes = 40
     num_incremental_sessions = 8
@@ -23,8 +29,13 @@ class Config:
     shot = 5
 
     image_size = 32          # CIFAR-100 native resolution, no resize needed
-    cifar_mean = (0.5071, 0.4865, 0.4409)
-    cifar_std = (0.2673, 0.2564, 0.2762)
+    backbone_type = "cifar_resnet18"   # cifar_resnet18 | resnet18 | resnet18_pretrained
+    # Active normalization stats. data_mean/data_std are the canonical names;
+    # cifar_mean/cifar_std are kept as aliases for backward compatibility.
+    data_mean = (0.5071, 0.4865, 0.4409)
+    data_std = (0.2673, 0.2564, 0.2762)
+    cifar_mean = data_mean
+    cifar_std = data_std
 
     # ---------------- Backbone ----------------
     backbone_out_dim = 512   # d
@@ -90,3 +101,33 @@ class Config:
     num_workers = 2            # keep low on Mac laptops
     device = "auto"             # "auto" picks mps -> cuda -> cpu
     log_every = 10
+
+    # -----------------------------------------------------------------------
+    # Dataset switch
+    # -----------------------------------------------------------------------
+    @classmethod
+    def apply_dataset(cls, dataset_key):
+        """Mutate the dataset-specific fields to match one benchmark from the
+        registry (fscil/datasets.py). All downstream code reads Config.*, so
+        this one call reconfigures the whole pipeline. Output dirs are
+        namespaced per dataset so runs never clobber each other."""
+        from fscil.datasets import get_spec
+        spec = get_spec(dataset_key)
+        cls.dataset = spec.key
+        cls.spec = spec
+        cls.image_size = spec.image_size
+        cls.backbone_type = spec.backbone
+        cls.data_mean = spec.mean
+        cls.data_std = spec.std
+        cls.cifar_mean = spec.mean   # backward-compat aliases
+        cls.cifar_std = spec.std
+        cls.num_base_classes = spec.num_base_classes
+        cls.num_novel_classes = spec.num_novel_classes
+        cls.num_incremental_sessions = spec.num_incremental_sessions
+        cls.way = spec.way
+        cls.shot = spec.shot
+        cls.ckpt_dir = os.path.join(cls.repo_root, "checkpoints", spec.key)
+        cls.log_dir = os.path.join(cls.repo_root, "logs", spec.key)
+        # keep episodic way within the available base-class pool
+        cls.episode_way = min(cls.episode_way, spec.num_base_classes)
+        return spec

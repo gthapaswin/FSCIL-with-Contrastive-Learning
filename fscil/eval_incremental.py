@@ -50,8 +50,8 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
 from fscil.config import Config
-from fscil.data import IndexedCIFAR100, base_transforms, get_base_novel_split, make_fantasy_views
-from fscil.backbone import CifarResNet18
+from fscil.data import build_dataset, base_transforms, get_official_split, make_fantasy_views, load_plan
+from fscil.backbone import build_backbone
 from fscil.pipeline import StagStiModel
 from fscil.train_session0 import get_device, set_seed
 
@@ -68,8 +68,7 @@ def build_new_class_prototypes(backbone, stag_model, full_train_ds, class_list, 
         chosen = rng.sample(idxs, shot) if len(idxs) >= shot else [rng.choice(idxs) for _ in range(shot)]
         shot_views = []
         for i in chosen:
-            raw_img = full_train_ds.data[i]
-            pil = torchvision.transforms.functional.to_pil_image(raw_img)
+            pil = full_train_ds.get_pil(i)
             views = make_fantasy_views(pil, M)          # (M, 3, H, W)
             shot_views.append(views)
         per_class_views.append(torch.stack(shot_views, dim=0))   # (shot, M, 3, H, W)
@@ -104,7 +103,7 @@ def write_new_memory_rows(stag_model, P_new, A_tilde_new, session_idx, device):
 
 @torch.no_grad()
 def evaluate_cumulative(backbone, stag_model, full_test_ds, class_order, H, device,
-                         novel_mask=None, batch_size=256):
+                         novel_mask=None, base_set=None, batch_size=256):
     """Accuracy over the test set restricted to every class in class_order,
     classified against the current persistent memory H (rows aligned to
     class_order).
@@ -123,13 +122,16 @@ def evaluate_cumulative(backbone, stag_model, full_test_ds, class_order, H, devi
         indices.extend(full_test_ds.indices_for_class(c))
 
     correct, total = 0, 0
+    base_correct, base_total = 0, 0
+    novel_correct, novel_total = 0, 0
     for start in range(0, len(indices), batch_size):
         batch_idx = indices[start:start + batch_size]
-        imgs, true_pos = [], []
+        imgs, true_pos, is_base = [], [], []
         for i in batch_idx:
             img, raw_label = full_test_ds[i]
             imgs.append(img)
             true_pos.append(pos_map[raw_label])
+            is_base.append(base_set is None or raw_label in base_set)
         imgs = torch.stack(imgs, dim=0).to(device)
         true_pos = torch.tensor(true_pos, device=device)
 
@@ -139,14 +141,28 @@ def evaluate_cumulative(backbone, stag_model, full_test_ds, class_order, H, devi
         if novel_mask is not None and Config.novel_logit_bias != 0.0:
             logits = logits + novel_mask.to(device).float() * Config.novel_logit_bias
         preds = logits.argmax(dim=1)
-        correct += (preds == true_pos).sum().item()
+        hit = (preds == true_pos)
+        correct += hit.sum().item()
         total += len(batch_idx)
-    return correct / total
+        for j, b in enumerate(is_base):
+            if b:
+                base_total += 1
+                base_correct += int(hit[j].item())
+            else:
+                novel_total += 1
+                novel_correct += int(hit[j].item())
+    return {
+        "acc": correct / total,
+        "acc_base": (base_correct / base_total) if base_total else float("nan"),
+        "acc_novel": (novel_correct / novel_total) if novel_total else float("nan"),
+    }
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--shot", type=int, default=Config.shot)
+    parser.add_argument("--dataset", type=str, default="cifar100",
+                         help="cifar100 | miniimagenet | cub200")
+    parser.add_argument("--shot", type=int, default=None)
     parser.add_argument("--backbone_ckpt", type=str, default=None,
                          help="Path to backbone checkpoint. Defaults to checkpoints/backbone_base.pt "
                               "(final-epoch). Pass checkpoints/backbone_base_best.pt to use the best-val "
@@ -157,11 +173,16 @@ def main():
                               "best-val checkpoint instead.")
     args = parser.parse_args()
 
+    spec = Config.apply_dataset(args.dataset)
+    shot = args.shot if args.shot is not None else Config.shot
     set_seed(Config.seed)
     device = get_device(Config.device)
     print(f"Using device: {device}")
+    print(f"Dataset: {spec.pretty_name} | backbone: {Config.backbone_type}")
 
-    base_classes, incremental_sessions = get_base_novel_split()
+    plan = load_plan(spec)
+    base_classes, incremental_sessions = get_official_split(spec, plan)
+    base_set = set(base_classes)
     all_sessions = [base_classes] + incremental_sessions
 
     backbone_ckpt = args.backbone_ckpt or os.path.join(Config.ckpt_dir, "backbone_base.pt")
@@ -172,7 +193,7 @@ def main():
             "Run `python -m fscil.train_session0` first."
         )
 
-    backbone = CifarResNet18(out_dim=Config.backbone_out_dim).to(device)
+    backbone = build_backbone(Config.backbone_type, out_dim=Config.backbone_out_dim).to(device)
     backbone.load_state_dict(torch.load(backbone_ckpt, map_location=device))
     backbone.freeze()
 
@@ -180,10 +201,10 @@ def main():
     stag_model.load_state_dict(torch.load(stag_ckpt, map_location=device))
     stag_model.eval()
 
-    full_train_ds = IndexedCIFAR100(Config.data_root, train=True, class_subset=list(range(100)),
-                                     transform=None, download=True)
-    full_test_ds = IndexedCIFAR100(Config.data_root, train=False, class_subset=list(range(100)),
-                                    transform=base_transforms(train=False), download=True)
+    full_train_ds = build_dataset(train=True, allowed_globals=None, transform=None,
+                                  spec=spec, plan=plan)
+    full_test_ds = build_dataset(train=False, allowed_globals=None,
+                                 transform=base_transforms(train=False), spec=spec, plan=plan)
 
     rng = random.Random(Config.seed + 1000)
 
@@ -192,12 +213,13 @@ def main():
     results = []
 
     print(f"\n=== Incremental FSCIL evaluation: {len(all_sessions)} sessions "
-          f"(session 0 = {len(base_classes)} base classes, sessions 1-8 = 5-way {args.shot}-shot) ===")
+          f"(session 0 = {len(base_classes)} base classes, sessions 1-{spec.num_incremental_sessions} "
+          f"= {spec.way}-way {shot}-shot) ===")
 
     for session_idx, class_list in enumerate(all_sessions):
         t0 = time.time()
         P_new, A_tilde_new = build_new_class_prototypes(
-            backbone, stag_model, full_train_ds, class_list, device, shot=args.shot,
+            backbone, stag_model, full_train_ds, class_list, device, shot=shot,
             M=Config.num_views, rng=rng,
         )
         H_new_rows = write_new_memory_rows(stag_model, P_new, A_tilde_new, session_idx, device)
@@ -205,29 +227,46 @@ def main():
         H = torch.cat([H, H_new_rows], dim=0)
         class_order.extend(class_list)
 
-        novel_mask = torch.tensor([c not in base_classes for c in class_order], dtype=torch.bool)
-        acc = evaluate_cumulative(backbone, stag_model, full_test_ds, class_order, H, device,
-                                   novel_mask=novel_mask)
-        results.append({"session": session_idx, "num_classes_seen": len(class_order), "accuracy": acc})
+        novel_mask = torch.tensor([c not in base_set for c in class_order], dtype=torch.bool)
+        m = evaluate_cumulative(backbone, stag_model, full_test_ds, class_order, H, device,
+                                novel_mask=novel_mask, base_set=base_set)
+        acc, acc_base, acc_novel = m["acc"], m["acc_base"], m["acc_novel"]
+        hm = (2 * acc_base * acc_novel / (acc_base + acc_novel)
+              if (acc_base == acc_base and acc_novel == acc_novel and (acc_base + acc_novel) > 0)
+              else float("nan"))
+        results.append({
+            "session": session_idx, "num_classes_seen": len(class_order),
+            "accuracy": acc, "acc_base": acc_base, "acc_novel": acc_novel, "harmonic_mean": hm,
+        })
 
         label = "Session 0 (base)" if session_idx == 0 else f"Session {session_idx} (+{len(class_list)} novel)"
-        print(f"[{label}] classes_seen={len(class_order):3d} | cumulative_test_acc={acc*100:.2f}% "
+        extra = "" if session_idx == 0 else (f" | A_B={acc_base*100:.2f}% A_N={acc_novel*100:.2f}% "
+                                             f"HM={hm*100:.2f}%")
+        print(f"[{label}] classes_seen={len(class_order):3d} | cumulative_test_acc={acc*100:.2f}%{extra} "
               f"| {time.time()-t0:.1f}s")
 
     acc0 = results[0]["accuracy"]
     accT = results[-1]["accuracy"]
     pd = (acc0 - accT) * 100
     avg_acc = float(np.mean([r["accuracy"] for r in results])) * 100
+    aB = results[-1]["acc_base"] * 100
+    aN = results[-1]["acc_novel"] * 100
+    hmT = results[-1]["harmonic_mean"] * 100
 
     print("\n=== Summary (standard FSCIL metrics) ===")
     print(f"Session 0 accuracy (base only):        {acc0*100:.2f}%")
     print(f"Final session accuracy (all classes):  {accT*100:.2f}%")
     print(f"Performance Drop (PD = Acc0 - AccT):     {pd:.2f} points")
     print(f"Average accuracy across all sessions:  {avg_acc:.2f}%")
+    print(f"Final base-only accuracy (A_B):        {aB:.2f}%")
+    print(f"Final novel-only accuracy (A_N):       {aN:.2f}%")
+    print(f"Final harmonic mean (A_B, A_N):        {hmT:.2f}%")
 
+    os.makedirs(Config.ckpt_dir, exist_ok=True)
     out_path = os.path.join(Config.ckpt_dir, "incremental_results.json")
     with open(out_path, "w") as f:
-        json.dump({"results": results, "PD": pd, "avg_accuracy": avg_acc}, f, indent=2)
+        json.dump({"dataset": spec.key, "results": results, "PD": pd, "avg_accuracy": avg_acc,
+                   "A_B": aB, "A_N": aN, "harmonic_mean": hmT}, f, indent=2)
     print(f"\nSaved results -> {out_path}")
 
 
