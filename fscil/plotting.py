@@ -98,6 +98,15 @@ def plot_incremental(results_path, out_dir):
 
 
 def main():
+    import argparse
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--dataset", type=str, default="cifar100",
+                    help="cifar100 | miniimagenet | cub200")
+    ap.add_argument("--ablate", nargs="+", default=None)
+    args = ap.parse_args()
+    Config.apply_dataset(args.dataset)
+    Config.apply_ablation(args.ablate)
+
     out_dir = os.path.join(Config.ckpt_dir, "plots")
     os.makedirs(out_dir, exist_ok=True)
 
