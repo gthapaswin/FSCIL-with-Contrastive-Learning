@@ -112,6 +112,27 @@ def make_fantasy_views(pil_img, num_views=None, spec=None):
 
 
 # ---------------------------------------------------------------------------
+# CUB-200 official train/test membership
+# ---------------------------------------------------------------------------
+def _cub_split_membership(cub_root, train):
+    """Return the set of "<class>/<file>" relative names belonging to the
+    requested split, from CUB-200-2011's official images.txt +
+    train_test_split.txt (is_training_image == 1 -> train)."""
+    id_to_rel = {}
+    with open(os.path.join(cub_root, "images.txt")) as f:
+        for line in f:
+            img_id, rel = line.strip().split(" ", 1)
+            id_to_rel[img_id] = rel
+    keep = set()
+    with open(os.path.join(cub_root, "train_test_split.txt")) as f:
+        for line in f:
+            img_id, flag = line.strip().split(" ", 1)
+            if (flag == "1") == train:
+                keep.add(id_to_rel[img_id])
+    return keep
+
+
+# ---------------------------------------------------------------------------
 # Unified dataset
 # ---------------------------------------------------------------------------
 class IndexedDataset(Dataset):
@@ -149,12 +170,20 @@ class IndexedDataset(Dataset):
             self.targets = targets
         else:
             root = os.path.join(Config.data_root, spec.data_subdir)
+            # Two supported layouts:
+            #   (a) train/ + test/ subfolders (miniImageNet)
+            #   (b) a single images/ tree with train_test_split.txt (CUB-200);
+            #       membership per image is read from CUB's official split.
             split_dir = "train" if train else "test"
             search_root = os.path.join(root, split_dir)
+            allowed_rel = None  # optional {"<class>/<file>"} membership filter
             if not os.path.isdir(search_root):
-                # some datasets (e.g. CUB) store all images under one tree;
-                # fall back to the dataset root and rely on folder = class.
-                search_root = root
+                if os.path.isdir(os.path.join(root, "images")) and \
+                        os.path.exists(os.path.join(root, "train_test_split.txt")):
+                    search_root = os.path.join(root, "images")
+                    allowed_rel = _cub_split_membership(root, train)
+                else:
+                    search_root = root  # last resort: folder = class, no split
             paths, targets = [], []
             for cls_name, g in key_to_global.items():
                 if allowed is not None and g not in allowed:
@@ -163,11 +192,14 @@ class IndexedDataset(Dataset):
                 if not os.path.isdir(cls_dir):
                     continue
                 for fn in sorted(os.listdir(cls_dir)):
-                    if fn.lower().endswith((".jpg", ".jpeg", ".png")):
-                        ap = os.path.join(cls_dir, fn)
-                        paths.append(ap)
-                        targets.append(g)
-                        self.source_refs.append(os.path.relpath(ap, Config.data_root).replace("\\", "/"))
+                    if not fn.lower().endswith((".jpg", ".jpeg", ".png")):
+                        continue
+                    if allowed_rel is not None and f"{cls_name}/{fn}" not in allowed_rel:
+                        continue
+                    ap = os.path.join(cls_dir, fn)
+                    paths.append(ap)
+                    targets.append(g)
+                    self.source_refs.append(os.path.relpath(ap, Config.data_root).replace("\\", "/"))
             self.paths = paths
             self.targets = targets
 
