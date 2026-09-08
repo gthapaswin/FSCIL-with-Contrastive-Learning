@@ -211,8 +211,9 @@ def main():
                                  device, base_globals)
         hm = (2 * m["acc_base"] * m["acc_novel"] / (m["acc_base"] + m["acc_novel"])
               if session_idx >= 1 and (m["acc_base"] + m["acc_novel"]) > 0 else float("nan"))
-        results.append({"session": session_idx, "num_classes_seen": len(class_order), **m,
-                        "harmonic_mean": hm})
+        results.append({"session": session_idx, "num_classes_seen": len(class_order),
+                        "accuracy": m["acc"], "acc_base": m["acc_base"],
+                        "acc_novel": m["acc_novel"], "harmonic_mean": hm})
         label = "Session 0 (miniImageNet base)" if session_idx == 0 else \
                 f"Session {session_idx} (+{len(class_list)} CUB novel)"
         extra = "" if session_idx == 0 else (f" | A_B={m['acc_base']*100:.2f}% "
@@ -220,7 +221,7 @@ def main():
         print(f"[{label}] seen={len(class_order):3d} | acc={m['acc']*100:.2f}%{extra} "
               f"| {time.time()-t0:.1f}s")
 
-    acc0, accT = results[0]["acc"], results[-1]["acc"]
+    acc0, accT = results[0]["accuracy"], results[-1]["accuracy"]
     pd = (acc0 - accT) * 100
     print("\n=== Cross-domain summary (miniImageNet -> CUB) ===")
     print(f"Base (miniImageNet) accuracy:  {acc0*100:.2f}%")

@@ -24,9 +24,13 @@ def _git(*args):
     return subprocess.run(["git", *args], cwd=_REPO, capture_output=True, text=True)
 
 
+def _acc(entry):
+    return entry.get("accuracy", entry.get("acc"))
+
+
 def _fmt(results):
     r = results["results"]
-    a0, aT = r[0]["accuracy"] * 100, r[-1]["accuracy"] * 100
+    a0, aT = _acc(r[0]) * 100, _acc(r[-1]) * 100
     pd = results.get("PD", a0 - aT)
     parts = [f"base {a0:.2f}%", f"final {aT:.2f}%", f"PD {pd:.2f}"]
     if "avg_accuracy" in results:

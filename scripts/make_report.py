@@ -49,9 +49,13 @@ def _load(path):
     return None
 
 
+def _acc(entry):
+    return entry.get("accuracy", entry.get("acc"))
+
+
 def _row(res):
     r = res["results"]
-    a0, aT = r[0]["accuracy"] * 100, r[-1]["accuracy"] * 100
+    a0, aT = _acc(r[0]) * 100, _acc(r[-1]) * 100
     last = r[-1]
     aB = last.get("acc_base")
     aN = last.get("acc_novel")
@@ -84,7 +88,7 @@ def main():
         m = _row(res)
         lines.append(f"| {name} | {m['A0']:.2f} | {m['AT']:.2f} | {m['PD']:.2f} | "
                      f"{m['avg']:.2f} | {m['AB']} | {m['AN']} | {m['HM']} |")
-        curves.append((name, [r["accuracy"] * 100 for r in res["results"]]))
+        curves.append((name, [_acc(r) * 100 for r in res["results"]]))
 
     # ---- cross-domain ----
     cd = _load(os.path.join(_CK, "crossdomain_mini2cub", "crossdomain_results.json"))
@@ -94,7 +98,7 @@ def main():
         lines.append(f"- Base (miniImageNet): **{m['A0']:.2f}%** → final (all seen): "
                      f"**{m['AT']:.2f}%**, PD **{m['PD']:.2f}**, "
                      f"A_B {m['AB']} / A_N {m['AN']} / HM {m['HM']}")
-        curves.append(("cross-domain", [r["accuracy"] * 100 for r in cd["results"]]))
+        curves.append(("cross-domain", [_acc(r) * 100 for r in cd["results"]]))
     else:
         lines.append("- _pending_")
 
@@ -111,7 +115,7 @@ def main():
     ours = []
     for key, _ in DATASETS:
         res = _load(os.path.join(_CK, key, "incremental_results.json"))
-        ours.append(f"**{res['results'][-1]['accuracy']*100:.2f}**" if res else "_pending_")
+        ours.append(f"**{_acc(res['results'][-1])*100:.2f}**" if res else "_pending_")
     lines.append(f"| **STAG-STI (ours)** | {ours[0]} | {ours[1]} | {ours[2]} |")
     lines.append("\n_CUB-200 baselines from the Review-1 deck; CIFAR-100 / miniImageNet "
                  "baselines are TODO — fill from the source papers._")

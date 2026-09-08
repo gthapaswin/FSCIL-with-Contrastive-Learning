@@ -1,6 +1,6 @@
 # STAG-STI — Results & Analysis
 
-_Generated 2026-09-08 18:53 • auto-updated as runs complete._
+_Generated 2026-09-08 18:56 • auto-updated as runs complete._
 
 ## In-domain results
 
@@ -12,7 +12,7 @@ _Generated 2026-09-08 18:53 • auto-updated as runs complete._
 
 ## Cross-domain (miniImageNet → CUB)
 
-- _pending_
+- Base (miniImageNet): **66.68%** → final (all seen): **44.27%**, PD **22.41**, A_B 61.38 / A_N 8.41 / HM 14.80
 
 ## Comparison vs. published methods (final-session accuracy %)
 
