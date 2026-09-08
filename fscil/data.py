@@ -26,6 +26,7 @@ from PIL import Image
 from torch.utils.data import Dataset
 import torchvision
 import torchvision.transforms as T
+import torchvision.transforms.functional as TF
 
 from fscil.config import Config
 from fscil.datasets import get_spec, load_official_split
@@ -92,22 +93,47 @@ def base_transforms(train=True, spec=None):
     ])
 
 
+def _center_zoom(im, ratio=0.8):
+    """Fixed central crop to `ratio` of each side (a deterministic zoom); the
+    caller resizes back to the target size afterwards."""
+    w, h = im.size
+    return TF.center_crop(im, [int(h * ratio), int(w * ratio)])
+
+
+# M DETERMINISTIC spatial transformation functions T_m(.) per the spec. Each
+# support image always yields the same M views -> reproducible prototypes.
+# Cycled if num_views exceeds the list length.
+_DETERMINISTIC_VIEW_OPS = [
+    ("identity", lambda im: im),
+    ("hflip", TF.hflip),
+    ("rot+15", lambda im: TF.rotate(im, 15)),
+    ("zoom0.8", _center_zoom),
+    ("rot-15", lambda im: TF.rotate(im, -15)),
+    ("rot+30", lambda im: TF.rotate(im, 30)),
+    ("rot-30", lambda im: TF.rotate(im, -30)),
+    ("vflip", TF.vflip),
+]
+
+
 def make_fantasy_views(pil_img, num_views=None, spec=None):
-    """Given a single PIL image, return `num_views` augmented, normalized
-    tensor views (M spatial/appearance transforms). Views are resized to the
-    dataset's input resolution so the same code works for 32/84/224 px."""
+    """Given a single PIL image, return `num_views` DETERMINISTIC, normalized
+    tensor views. Views are resized to the dataset's input resolution so the
+    same code works for 32/84/224 px. Deterministic (fixed spatial transforms)
+    per the tech doc's T_m definition -> identical views on every call."""
     num_views = num_views or Config.num_views
     spec = spec or get_spec(Config.dataset)
     size = spec.image_size
     norm = _normalize()
-    resize = [] if spec.loader == "cifar100" else [T.Resize((size, size))]
-    view_transforms = [
-        T.Compose([T.RandomResizedCrop(size, scale=(0.8, 1.0)), T.ToTensor(), norm]),
-        T.Compose(resize + [T.RandomHorizontalFlip(p=1.0), T.ToTensor(), norm]),
-        T.Compose(resize + [T.RandomRotation(15), T.ToTensor(), norm]),
-        T.Compose(resize + [T.ColorJitter(0.3, 0.3, 0.3), T.ToTensor(), norm]),
-    ]
-    views = [view_transforms[m % len(view_transforms)](pil_img) for m in range(num_views)]
+    views = []
+    for m in range(num_views):
+        _, op = _DETERMINISTIC_VIEW_OPS[m % len(_DETERMINISTIC_VIEW_OPS)]
+        im = pil_img
+        if spec.loader != "cifar100":
+            im = TF.resize(im, [size, size])   # normalize arbitrary input size first
+        im = op(im)
+        if im.size != (size, size):            # zoom crop / non-square inputs
+            im = TF.resize(im, [size, size])
+        views.append(norm(TF.to_tensor(im)))
     return torch.stack(views, dim=0)  # (M, 3, H, W)
 
 
