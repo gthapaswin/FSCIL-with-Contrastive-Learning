@@ -233,6 +233,8 @@ def main():
                               "(stronger, transductive protocol). Writes to a transductive/ subdir.")
     parser.add_argument("--closer", action="store_true",
                          help="Evaluate the CLOSER-trained model (reads/writes checkpoints/<ds>/closer/).")
+    parser.add_argument("--closer_lambda_close", type=float, default=None,
+                         help="Must match the value used at training time (for the closer_lc<val>/ namespace).")
     parser.add_argument("--backbone_ckpt", type=str, default=None,
                          help="Path to backbone checkpoint. Defaults to checkpoints/backbone_base.pt "
                               "(final-epoch). Pass checkpoints/backbone_base_best.pt to use the best-val "
@@ -247,8 +249,11 @@ def main():
     ablations = Config.apply_ablation(args.ablate)
     if args.closer:
         Config.use_closer = True
-        Config.ckpt_dir = os.path.join(Config.ckpt_dir, "closer")
-        Config.backbone_ckpt_dir = os.path.join(Config.backbone_ckpt_dir, "closer")
+        if args.closer_lambda_close is not None:
+            Config.closer_lambda_close = args.closer_lambda_close
+        sub = "closer" if Config.closer_lambda_close == 0.1 else f"closer_lc{Config.closer_lambda_close}"
+        Config.ckpt_dir = os.path.join(Config.ckpt_dir, sub)
+        Config.backbone_ckpt_dir = os.path.join(Config.backbone_ckpt_dir, sub)
     shot = args.shot if args.shot is not None else Config.shot
     set_seed(Config.seed)
     device = get_device(Config.device)

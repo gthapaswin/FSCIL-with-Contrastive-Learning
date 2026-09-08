@@ -451,6 +451,11 @@ def main():
                          help="cifar100 | miniimagenet | cub200")
     parser.add_argument("--closer", action="store_true",
                          help="Use the CLOSER-style Phase-A objective (transfer-friendly base).")
+    parser.add_argument("--closer_lambda_close", type=float, default=None,
+                         help="Override inter-class compactness weight (default 0.1). "
+                              "Non-default values namespace the run as closer_lc<val>/.")
+    parser.add_argument("--closer_lambda_ssl", type=float, default=None,
+                         help="Override self-supervised NT-Xent weight (default 0.5).")
     parser.add_argument("--ablate", nargs="+", default=None,
                          choices=["none", "supcon", "topology", "agedecay"],
                          help="Disable STAG-STI components for the ablation study "
@@ -466,8 +471,13 @@ def main():
     if args.closer:
         # namespace the whole run so the CLOSER variant never clobbers baseline
         Config.use_closer = True
-        Config.ckpt_dir = os.path.join(Config.ckpt_dir, "closer")
-        Config.backbone_ckpt_dir = os.path.join(Config.backbone_ckpt_dir, "closer")
+        if args.closer_lambda_close is not None:
+            Config.closer_lambda_close = args.closer_lambda_close
+        if args.closer_lambda_ssl is not None:
+            Config.closer_lambda_ssl = args.closer_lambda_ssl
+        sub = "closer" if Config.closer_lambda_close == 0.1 else f"closer_lc{Config.closer_lambda_close}"
+        Config.ckpt_dir = os.path.join(Config.ckpt_dir, sub)
+        Config.backbone_ckpt_dir = os.path.join(Config.backbone_ckpt_dir, sub)
     set_seed(Config.seed)
     device = get_device(Config.device)
     print(f"Using device: {device}")
