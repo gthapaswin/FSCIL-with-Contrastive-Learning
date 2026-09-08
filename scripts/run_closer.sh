@@ -14,7 +14,14 @@ for DS in miniimagenet cub200; do
   RESULT="checkpoints/$DS/closer/incremental_results.json"
   if [ -f "$RESULT" ]; then echo "[closer] $DS already done, skipping"; continue; fi
   echo "[closer] $(date) === $DS CLOSER (lambda_close=0.1) ==="
-  if [ -f "checkpoints/$DS/closer/backbone_base.pt" ]; then
+  BB="checkpoints/$DS/closer/backbone_base.pt"
+  # salvage: if Phase A was interrupted before the final save but a best-val
+  # backbone exists, promote it so we resume Phase B instead of retraining.
+  if [ ! -f "$BB" ] && [ -f "checkpoints/$DS/closer/backbone_base_best.pt" ]; then
+    echo "[closer] promoting backbone_base_best.pt -> backbone_base.pt for $DS"
+    cp "checkpoints/$DS/closer/backbone_base_best.pt" "$BB"
+  fi
+  if [ -f "$BB" ]; then
     $PY -m fscil.train_session0 --dataset "$DS" --closer --skip_backbone_pretrain
   else
     $PY -m fscil.train_session0 --dataset "$DS" --closer
