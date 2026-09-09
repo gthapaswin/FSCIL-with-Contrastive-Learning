@@ -120,6 +120,33 @@ def main():
     lines.append("\n_CUB-200 baselines from the Review-1 deck; CIFAR-100 / miniImageNet "
                  "baselines are TODO — fill from the source papers._")
 
+    # ---- CLOSER-style base objective (per-dataset, vs baseline) ----
+    lines.append("\n## CLOSER-style base objective (Δ vs baseline)\n")
+    lines.append("| Dataset | Base | Final | A_B | A_N | HM | ΔA_N | ΔHM |")
+    lines.append("|---|---|---|---|---|---|---|---|")
+    any_closer = False
+    for key, name in DATASETS:
+        base = _load(os.path.join(_CK, key, "incremental_results.json"))
+        clo = _load(os.path.join(_CK, key, "closer", "incremental_results.json"))
+        if not clo:
+            continue
+        any_closer = True
+        mb, mc = _row(base) if base else None, _row(clo)
+        dA = f"{(_acc(clo['results'][-1]) - _acc(base['results'][-1])):+.1f}" if base else "-"
+        # A_N/HM deltas
+        def last(res, k):
+            return res["results"][-1].get(k)
+        dAN = f"{(last(clo,'acc_novel')-last(base,'acc_novel'))*100:+.1f}" if base else "-"
+        dHM = f"{(last(clo,'harmonic_mean')-last(base,'harmonic_mean'))*100:+.1f}" if base else "-"
+        lines.append(f"| {name} | {mc['A0']:.1f} | {mc['AT']:.1f} | {mc['AB']} | {mc['AN']} | "
+                     f"{mc['HM']} | {dAN} | {dHM} |")
+    if any_closer:
+        lines.append("\n_CLOSER helped CIFAR-100 (A_N/HM up) but hurt miniImageNet and was ~neutral "
+                     "on CUB-200 — an inconsistent, dataset-dependent effect at these loss weights "
+                     "(λ_ssl=0.5, λ_close=0.1)._")
+    else:
+        lines.append("- _pending_")
+
     # ---- ablation study (CIFAR) ----
     lines.append("\n## Ablation study (CIFAR-100)\n")
     lines.append("| Configuration | A₀ | A_T | PD ↓ | Avg |")
