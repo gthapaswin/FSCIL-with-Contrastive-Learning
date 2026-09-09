@@ -1,0 +1,477 @@
+<!-- content only; wrapped at publish time -->
+<title>STAG-STI Findings</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root{
+    --paper:#F5F6F4; --card:#FFFFFF; --ink:#1A1C22; --muted:#5D636E;
+    --faint:#8A909B; --line:#E1E2DD; --line-strong:#CFD1CB;
+    --accent:#23507A; --accent-soft:#E7EEF4; --accent-ink:#1B3E5E;
+    --good:#2F7D5F; --good-soft:#E4F0EA; --bad:#B0462E; --bad-soft:#F5E6E1;
+    --warn:#9A6C1E; --warn-soft:#F3EAD6;
+    --shadow:0 1px 2px rgba(20,25,35,.05), 0 8px 24px rgba(20,25,35,.06);
+  }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      --paper:#13151B; --card:#1B1E26; --ink:#E7E9EE; --muted:#9BA2AF;
+      --faint:#6C7381; --line:#282C36; --line-strong:#39404C;
+      --accent:#79A7D6; --accent-soft:#1C2A38; --accent-ink:#A9C7E6;
+      --good:#5FB98C; --good-soft:#183026; --bad:#E08668; --bad-soft:#321F18;
+      --warn:#D2A44E; --warn-soft:#302716;
+      --shadow:0 1px 2px rgba(0,0,0,.3), 0 10px 30px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="dark"]{
+    --paper:#13151B; --card:#1B1E26; --ink:#E7E9EE; --muted:#9BA2AF;
+    --faint:#6C7381; --line:#282C36; --line-strong:#39404C;
+    --accent:#79A7D6; --accent-soft:#1C2A38; --accent-ink:#A9C7E6;
+    --good:#5FB98C; --good-soft:#183026; --bad:#E08668; --bad-soft:#321F18;
+    --warn:#D2A44E; --warn-soft:#302716;
+    --shadow:0 1px 2px rgba(0,0,0,.3), 0 10px 30px rgba(0,0,0,.35);
+  }
+
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  @media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+  body{
+    margin:0; background:var(--paper); color:var(--ink);
+    font-family:"IBM Plex Sans",system-ui,-apple-system,sans-serif;
+    font-size:16.5px; line-height:1.62; -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1180px; margin:0 auto; padding:0 clamp(18px,4vw,48px)}
+  .layout{display:grid; grid-template-columns:1fr; gap:0}
+  @media (min-width:1000px){ .layout{grid-template-columns:232px minmax(0,1fr); gap:56px} }
+
+  /* ---- header ---- */
+  header.hero{padding:clamp(48px,7vw,88px) 0 40px; border-bottom:1px solid var(--line)}
+  .eyebrow{font-family:"IBM Plex Mono",monospace; font-size:12.5px; letter-spacing:.16em;
+    text-transform:uppercase; color:var(--accent); margin:0 0 20px}
+  h1{font-family:"Fraunces",Georgia,serif; font-weight:600; font-size:clamp(2.3rem,5.4vw,3.7rem);
+    line-height:1.03; letter-spacing:-.02em; text-wrap:balance; margin:0 0 10px}
+  h1 .sub{display:block; font-size:.42em; font-weight:400; color:var(--muted); letter-spacing:0; margin-top:14px; line-height:1.4}
+  .lede{font-size:1.12rem; color:var(--muted); max-width:64ch; margin:22px 0 30px}
+  .meta{display:flex; flex-wrap:wrap; gap:10px 26px; font-family:"IBM Plex Mono",monospace;
+    font-size:12.5px; color:var(--faint)}
+  .meta b{color:var(--ink); font-weight:500}
+
+  /* ---- toc ---- */
+  nav.toc{display:none}
+  @media (min-width:1000px){
+    nav.toc{display:block; position:sticky; top:0; align-self:start; height:100vh;
+      overflow-y:auto; padding:56px 0 40px; font-size:13.5px}
+    nav.toc ol{list-style:none; margin:0; padding:0; border-left:1px solid var(--line)}
+    nav.toc a{display:block; padding:5px 0 5px 16px; margin-left:-1px; color:var(--muted);
+      text-decoration:none; border-left:2px solid transparent; line-height:1.35}
+    nav.toc a:hover{color:var(--ink)}
+    nav.toc a .n{font-family:"IBM Plex Mono",monospace; color:var(--faint); margin-right:8px; font-size:12px}
+  }
+
+  main{padding:8px 0 96px; min-width:0}
+  section{padding:44px 0; border-bottom:1px solid var(--line)}
+  section:last-child{border-bottom:0}
+  h2{font-family:"Fraunces",Georgia,serif; font-weight:600; font-size:clamp(1.5rem,3vw,2rem);
+    letter-spacing:-.015em; text-wrap:balance; margin:0 0 6px; scroll-margin-top:20px}
+  h2 .h2n{font-family:"IBM Plex Mono",monospace; font-size:.62em; font-weight:400; color:var(--accent); margin-right:.6em}
+  h3{font-family:"Fraunces",Georgia,serif; font-weight:600; font-size:1.24rem; letter-spacing:-.01em;
+    margin:34px 0 4px}
+  p{margin:14px 0; max-width:72ch}
+  a{color:var(--accent-ink)}
+  strong{font-weight:600}
+  .kicker{color:var(--muted); font-size:1.02rem; margin-top:2px; max-width:72ch}
+  ul,ol.list{max-width:72ch; padding-left:1.1em; margin:14px 0}
+  li{margin:7px 0}
+  code{font-family:"IBM Plex Mono",monospace; font-size:.86em; background:var(--accent-soft);
+    color:var(--accent-ink); padding:.1em .4em; border-radius:4px}
+  pre{font-family:"IBM Plex Mono",monospace; font-size:13px; background:var(--card); color:var(--ink);
+    border:1px solid var(--line); border-radius:10px; padding:16px 18px; overflow-x:auto; line-height:1.55}
+  pre code{background:none; color:inherit; padding:0}
+
+  /* ---- tables ---- */
+  .twrap{overflow-x:auto; margin:22px 0; border:1px solid var(--line); border-radius:12px; box-shadow:var(--shadow)}
+  table{width:100%; border-collapse:collapse; font-size:14px; background:var(--card)}
+  caption{caption-side:top; text-align:left; font-family:"IBM Plex Mono",monospace; font-size:12px;
+    letter-spacing:.04em; text-transform:uppercase; color:var(--faint); padding:0 0 10px}
+  th,td{padding:9px 14px; text-align:right; border-bottom:1px solid var(--line); white-space:nowrap;
+    font-variant-numeric:tabular-nums}
+  th:first-child,td:first-child{text-align:left; white-space:normal}
+  thead th{font-weight:600; color:var(--muted); font-size:12px; letter-spacing:.03em; text-transform:uppercase;
+    border-bottom:1.5px solid var(--line-strong); background:var(--card); position:sticky; top:0}
+  tbody tr:last-child td{border-bottom:0}
+  tr.rule td{border-top:1.5px solid var(--line-strong)}
+  td.metric{font-family:"IBM Plex Mono",monospace}
+  .row-hi{background:var(--accent-soft)}
+  .row-hi td:first-child{font-weight:600}
+  .up{color:var(--good); font-weight:600} .down{color:var(--bad); font-weight:600}
+  .flat{color:var(--faint)}
+  .tag{display:inline-block; font-family:"IBM Plex Mono",monospace; font-size:11px; padding:1px 7px;
+    border-radius:100px; letter-spacing:.02em; vertical-align:middle}
+  .tag.good{background:var(--good-soft); color:var(--good)}
+  .tag.bad{background:var(--bad-soft); color:var(--bad)}
+  .tag.warn{background:var(--warn-soft); color:var(--warn)}
+
+  /* ---- summary cards ---- */
+  .statgrid{display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:14px; margin:26px 0}
+  .stat{background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px 18px; box-shadow:var(--shadow)}
+  .stat .k{font-family:"IBM Plex Mono",monospace; font-size:11.5px; letter-spacing:.04em; text-transform:uppercase; color:var(--faint)}
+  .stat .v{font-family:"Fraunces",serif; font-weight:600; font-size:1.9rem; line-height:1.1; margin-top:6px; font-variant-numeric:tabular-nums}
+  .stat .d{font-size:12.5px; color:var(--muted); margin-top:2px}
+
+  /* ---- callouts ---- */
+  .note{border-left:3px solid var(--accent); background:var(--accent-soft); border-radius:0 10px 10px 0;
+    padding:14px 18px; margin:22px 0}
+  .note.finding{border-color:var(--good); background:var(--good-soft)}
+  .note.warnbox{border-color:var(--warn); background:var(--warn-soft)}
+  .note.badbox{border-color:var(--bad); background:var(--bad-soft)}
+  .note p{margin:6px 0; max-width:70ch}
+  .note .lab{font-family:"IBM Plex Mono",monospace; font-size:11.5px; letter-spacing:.08em; text-transform:uppercase; font-weight:500}
+
+  /* ---- pipeline chips ---- */
+  .flow{display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin:22px 0; font-family:"IBM Plex Mono",monospace; font-size:12.5px}
+  .flow .chip{background:var(--card); border:1px solid var(--line-strong); border-radius:8px; padding:7px 11px; box-shadow:var(--shadow)}
+  .flow .arw{color:var(--faint)}
+
+  /* ---- chart ---- */
+  .chartcard{background:var(--card); border:1px solid var(--line); border-radius:14px; padding:22px 20px 14px; box-shadow:var(--shadow); margin:24px 0}
+  .chartcard svg{width:100%; height:auto; display:block}
+  .legend{display:flex; flex-wrap:wrap; gap:16px; margin-top:10px; font-size:13px; font-family:"IBM Plex Mono",monospace}
+  .legend span{display:inline-flex; align-items:center; gap:7px; color:var(--muted)}
+  .legend i{width:16px; height:3px; border-radius:2px; display:inline-block}
+  .cl-a{stroke:var(--accent)} .cl-b{stroke:var(--good)} .cl-c{stroke:var(--warn)} .cl-d{stroke:var(--bad)}
+  .axis{stroke:var(--line-strong)} .grid{stroke:var(--line)} .axlab{fill:var(--faint); font-family:"IBM Plex Mono",monospace; font-size:11px}
+
+  footer{padding:40px 0 60px; color:var(--faint); font-size:13px; font-family:"IBM Plex Mono",monospace}
+  .disclaim{border:1px dashed var(--line-strong); border-radius:10px; padding:14px 18px; color:var(--muted); font-size:13.5px; margin-top:16px}
+  ::selection{background:var(--accent); color:#fff}
+  a:focus-visible,summary:focus-visible{outline:2px solid var(--accent); outline-offset:3px; border-radius:3px}
+</style>
+
+<div class="wrap">
+<header class="hero">
+  <p class="eyebrow">Final-Year Capstone · Review Findings</p>
+  <h1>STAG-STI
+    <span class="sub">Spatio-Temporal Graph Integration with Contrastive Pre-Conditioning for Few-Shot Class-Incremental Learning — implementation, benchmarks &amp; an evidence-driven improvement study.</span>
+  </h1>
+  <p class="lede">A full account of the work: extending a single-dataset prototype into a reproducible three-benchmark FSCIL system on official splits, then systematically testing what does — and does not — improve its weakest metric, novel-class accuracy.</p>
+  <div class="meta">
+    <span>Author&nbsp; <b>G Thapaswin</b></span>
+    <span>Domain&nbsp; <b>ML · CV · Continual Learning</b></span>
+    <span>Datasets&nbsp; <b>CIFAR-100 · miniImageNet · CUB-200</b></span>
+    <span>Status&nbsp; <b>All runs complete</b></span>
+  </div>
+</header>
+
+<div class="layout">
+  <nav class="toc" aria-label="Contents">
+    <ol>
+      <li><a href="#summary"><span class="n">00</span>At a glance</a></li>
+      <li><a href="#problem"><span class="n">01</span>Problem &amp; background</a></li>
+      <li><a href="#arch"><span class="n">02</span>The STAG-STI architecture</a></li>
+      <li><a href="#protocol"><span class="n">03</span>Datasets &amp; protocol</a></li>
+      <li><a href="#built"><span class="n">04</span>What was built</a></li>
+      <li><a href="#results"><span class="n">05</span>Main results</a></li>
+      <li><a href="#ablation"><span class="n">06</span>Ablation study</a></li>
+      <li><a href="#improve"><span class="n">07</span>Improvement study</a></li>
+      <li><a href="#bugs"><span class="n">08</span>Bugs found &amp; fixed</a></li>
+      <li><a href="#limits"><span class="n">09</span>Caveats &amp; limits</a></li>
+      <li><a href="#conclude"><span class="n">10</span>Conclusions</a></li>
+      <li><a href="#repro"><span class="n">11</span>Reproducibility</a></li>
+    </ol>
+  </nav>
+
+  <main>
+    <!-- 00 -->
+    <section id="summary">
+      <h2><span class="h2n">00</span>At a glance</h2>
+      <p class="kicker">The headline numbers, and the one finding that shaped the whole study.</p>
+      <div class="statgrid">
+        <div class="stat"><div class="k">Benchmarks run</div><div class="v">4</div><div class="d">3 in-domain + 1 cross-domain</div></div>
+        <div class="stat"><div class="k">Best final acc</div><div class="v">50.9%</div><div class="d">CUB-200, transductive</div></div>
+        <div class="stat"><div class="k">CUB base bug</div><div class="v">1% → 78%</div><div class="d">found &amp; fixed on verify</div></div>
+        <div class="stat"><div class="k">Improvement levers tested</div><div class="v">5</div><div class="d">1 reliable, 4 not</div></div>
+        <div class="stat"><div class="k">Reproducible commits</div><div class="v">44</div><div class="d">every result on GitHub</div></div>
+      </div>
+      <div class="note finding">
+        <p class="lab" style="color:var(--good)">Central finding</p>
+        <p>Across every benchmark, <strong>base-class accuracy is strong (56–69%) but novel-class accuracy is the bottleneck (16–31%)</strong>. The whole improvement study targets this gap. Of five levers tested, only <strong>transductive prototype rectification</strong> improved all metrics reliably; logit-bias and inference-time augmentation did not, and the CLOSER-style representation objective helped one dataset and hurt another.</p>
+      </div>
+    </section>
+
+    <!-- 01 -->
+    <section id="problem">
+      <h2><span class="h2n">01</span>Problem &amp; background</h2>
+      <p class="kicker">What FSCIL is, and why it is hard.</p>
+      <p><strong>Few-Shot Class-Incremental Learning (FSCIL)</strong> asks a model to keep learning new categories after deployment — from only a handful of examples per class — without retraining from scratch and without forgetting. Training arrives as a stream of sessions with <em>disjoint</em> label spaces; after every session the model is evaluated on <em>all</em> classes seen so far.</p>
+      <p>Two failure modes define the problem:</p>
+      <ul>
+        <li><strong>Catastrophic forgetting</strong> — updating on new classes overwrites old decision boundaries, so base-session accuracy collapses over time.</li>
+        <li><strong>Few-shot overfitting</strong> — with 5 examples per new class, direct fine-tuning memorises the samples instead of learning a generalisable boundary.</li>
+      </ul>
+      <p>The mainstream fix — and the framework this project uses — is to <strong>freeze the backbone after the base session</strong> and classify new classes by nearest-prototype matching. This sidesteps both failure modes but shifts the entire burden onto the quality of the representation learned once, in the base session. That single dependency is exactly what the improvement study (§7) probes.</p>
+    </section>
+
+    <!-- 02 -->
+    <section id="arch">
+      <h2><span class="h2n">02</span>The STAG-STI architecture</h2>
+      <p class="kicker">A graph-attentive, contrastively pre-conditioned pipeline with an ageing memory.</p>
+      <p>STAG-STI builds class prototypes through an eight-stage pipeline. A frozen backbone extracts features; a projection and a supervised-contrastive head pre-condition the embedding space; a learned topology scorer and a GATv2 attention layer reason over <em>relationships</em> between classes; prototypes are pooled and folded into a persistent memory that ages older classes so they stabilise while recent ones stay plastic. Queries skip the graph and are matched to memory by temperature-scaled cosine similarity.</p>
+      <div class="flow" aria-label="pipeline">
+        <span class="chip">Fantasy views ×M</span><span class="arw">→</span>
+        <span class="chip">Frozen backbone fθ</span><span class="arw">→</span>
+        <span class="chip">Projection Wₚ</span><span class="arw">→</span>
+        <span class="chip">SupCon head</span><span class="arw">→</span>
+        <span class="chip">Topology gφ</span><span class="arw">→</span>
+        <span class="chip">GATv2</span><span class="arw">→</span>
+        <span class="chip">Prototype pool</span><span class="arw">→</span>
+        <span class="chip">STI memory Hₜ</span><span class="arw">→</span>
+        <span class="chip">Cosine classifier</span>
+      </div>
+      <p>The three components that the deck frames as the contribution — <strong>contrastive pre-conditioning</strong>, <strong>topology-aware graph attention</strong>, and the <strong>spatio-temporal (age-decaying) memory</strong> — are each isolated in the ablation study (§6). The model's mathematics were left unchanged throughout this work; every change was to the surrounding data, evaluation, and tooling, plus two opt-in hooks used only for the ablations.</p>
+    </section>
+
+    <!-- 03 -->
+    <section id="protocol">
+      <h2><span class="h2n">03</span>Datasets &amp; evaluation protocol</h2>
+      <p class="kicker">Three standard benchmarks on official splits, plus a cross-domain stress test.</p>
+      <p>To make the numbers directly comparable to the literature (FACT, SAVC, CLOSER), all benchmarks use the <strong>official CEC/FACT class splits</strong>, vendored into the repository. The incremental support at evaluation uses the <strong>exact few-shot samples</strong> named by those split files, not random draws.</p>
+      <div class="twrap"><table>
+        <caption>Benchmark suite</caption>
+        <thead><tr><th>Dataset</th><th>Resolution</th><th>Base / Novel</th><th>Sessions</th><th>Backbone</th></tr></thead>
+        <tbody>
+          <tr><td>CIFAR-100</td><td>32×32</td><td>60 / 40</td><td>8 × (5-way 5-shot)</td><td>ResNet-18 (CIFAR stem)</td></tr>
+          <tr><td>miniImageNet</td><td>84×84</td><td>60 / 40</td><td>8 × (5-way 5-shot)</td><td>ResNet-18</td></tr>
+          <tr><td>CUB-200-2011</td><td>224×224</td><td>100 / 100</td><td>10 × (10-way 5-shot)</td><td>ResNet-18 (ImageNet-pretrained)</td></tr>
+          <tr class="rule"><td>Cross-domain</td><td>84×84</td><td>miniImageNet base → CUB novel</td><td>10 × (10-way 5-shot)</td><td>miniImageNet backbone (frozen)</td></tr>
+        </tbody>
+      </table></div>
+      <p><strong>Metrics.</strong> Aᵢ is top-1 accuracy after session <em>i</em> over all classes seen. <strong>PD</strong> (performance drop) = A₀ − A_T, lower is better. <strong>A_B / A_N</strong> restrict accuracy to base-only / novel-only classes — the transfer check. <strong>HM</strong> is the harmonic mean of A_B and A_N, which penalises trading one for the other. Everything is frozen at incremental time; no exemplar replay.</p>
+      <div class="note">
+        <p class="lab">On the cross-domain protocol</p>
+        <p>There is no standard miniImageNet→CUB benchmark, so this project defines a reproducible one: the frozen miniImageNet base model, then CUB classes streamed in as 10 sessions of 10-way 5-shot, all CUB images resized to 84×84 with ImageNet normalisation. It should be described as this project's own protocol, not cited.</p>
+      </div>
+    </section>
+
+    <!-- 04 -->
+    <section id="built">
+      <h2><span class="h2n">04</span>What was built</h2>
+      <p class="kicker">From a CIFAR-only prototype to a reproducible multi-dataset system.</p>
+      <p>The starting point ran only on CIFAR-100 with a fixed-random split. The engineering work generalised it into a dataset-agnostic, literature-comparable framework:</p>
+      <ul>
+        <li><strong>Dataset abstraction</strong> — a registry (<code>DatasetSpec</code>) and a single global-label space, selected by a <code>--dataset</code> flag; all three benchmarks share one code path.</li>
+        <li><strong>Official splits</strong> — the CEC index files vendored and parsed into a fixed, reproducible class order.</li>
+        <li><strong>Three loader backends</strong> — CIFAR index-based; an imagefolder backend with CUB's <code>train_test_split.txt</code> handling; and a <code>mini_csv</code> backend for miniImageNet's flat <code>images/</code> + CSV packaging.</li>
+        <li><strong>Backbone factory</strong> — CIFAR-stem, standard, and ImageNet-pretrained ResNet-18, with per-dataset Phase-A hyperparameters (CUB fine-tunes at a low LR).</li>
+        <li><strong>Deterministic fantasy views</strong> — fixed spatial transforms, faithful to the spec's definition of the <em>M</em> deterministic view functions.</li>
+        <li><strong>Standard FSCIL metrics</strong> — A_B, A_N, harmonic mean added throughout.</li>
+        <li><strong>Ablation harness</strong> — <code>--ablate supcon|topology|agedecay</code>, namespaced so runs never collide.</li>
+        <li><strong>Cross-domain evaluation</strong>, <strong>transductive rectification</strong> (<code>--transductive</code>), and a <strong>CLOSER-style base objective</strong> (<code>--closer</code>) — each namespaced separately from the baselines.</li>
+        <li><strong>Orchestration</strong> — resumable runners, automatic metric-tagged commits, and a self-updating report generator. Every result is a commit on GitHub.</li>
+      </ul>
+      <div class="note warnbox">
+        <p class="lab" style="color:var(--warn)">Note on comparability</p>
+        <p>Moving CIFAR-100 to the official split changed its base-class set, so the numbers here differ from the earlier random-split prototype. The switch is what makes comparison to published methods valid. The legacy run is preserved separately.</p>
+      </div>
+    </section>
+
+    <!-- 05 -->
+    <section id="results">
+      <h2><span class="h2n">05</span>Main results</h2>
+      <p class="kicker">In-domain across three benchmarks, plus the cross-domain transfer test.</p>
+      <div class="twrap"><table>
+        <caption>In-domain FSCIL — final-session metrics (inductive baseline)</caption>
+        <thead><tr><th>Dataset</th><th>A₀ base</th><th>A_T final</th><th>PD ↓</th><th>Avg</th><th>A_B</th><th>A_N</th><th>HM</th></tr></thead>
+        <tbody>
+          <tr><td>CIFAR-100</td><td class="metric">78.22</td><td class="metric">49.53</td><td class="metric">28.69</td><td class="metric">62.08</td><td class="metric">68.72</td><td class="metric">20.75</td><td class="metric">31.87</td></tr>
+          <tr><td>miniImageNet</td><td class="metric">66.13</td><td class="metric">40.25</td><td class="metric">25.88</td><td class="metric">51.18</td><td class="metric">56.12</td><td class="metric">16.45</td><td class="metric">25.44</td></tr>
+          <tr><td>CUB-200</td><td class="metric">77.79</td><td class="metric">49.71</td><td class="metric">28.09</td><td class="metric">60.88</td><td class="metric">68.99</td><td class="metric">30.85</td><td class="metric">42.64</td></tr>
+        </tbody>
+      </table></div>
+      <p>The per-session curves show the characteristic FSCIL decline as classes accumulate. CUB retains the most novel-class accuracy (A_N 30.9), consistent with its ImageNet-pretrained features transferring better than the from-scratch CIFAR/miniImageNet backbones.</p>
+
+      <div class="chartcard">
+        <svg viewBox="0 0 660 336" role="img" aria-label="Cumulative test accuracy per session for each benchmark">
+          <!-- gridlines + y labels -->
+          <g class="grid" stroke-width="1">
+            <line x1="60" y1="30" x2="620" y2="30"/><line x1="60" y1="90" x2="620" y2="90"/>
+            <line x1="60" y1="150" x2="620" y2="150"/><line x1="60" y1="210" x2="620" y2="210"/>
+            <line x1="60" y1="270" x2="620" y2="270"/>
+          </g>
+          <g class="axlab" text-anchor="end">
+            <text x="50" y="34">80</text><text x="50" y="94">70</text><text x="50" y="154">60</text>
+            <text x="50" y="214">50</text><text x="50" y="274">40</text>
+          </g>
+          <line class="axis" x1="60" y1="30" x2="60" y2="300" stroke-width="1.5"/>
+          <line class="axis" x1="60" y1="300" x2="620" y2="300" stroke-width="1.5"/>
+          <g class="axlab" text-anchor="middle">
+            <text x="60" y="318">0</text><text x="116" y="318">1</text><text x="172" y="318">2</text>
+            <text x="228" y="318">3</text><text x="284" y="318">4</text><text x="340" y="318">5</text>
+            <text x="396" y="318">6</text><text x="452" y="318">7</text><text x="508" y="318">8</text>
+            <text x="564" y="318">9</text><text x="620" y="318">10</text>
+            <text x="340" y="334">session (0 = base)</text>
+          </g>
+          <!-- series -->
+          <polyline class="cl-a" fill="none" stroke-width="2.4" points="60,40.8 116,73.2 172,99.6 228,124.2 284,144.6 340,164.4 396,182.4 452,196.2 508,213"/>
+          <polyline class="cl-c" fill="none" stroke-width="2.4" points="60,113.4 116,142.2 172,168.6 228,191.4 284,208.8 340,230.4 396,245.4 452,258 508,268.8"/>
+          <polyline class="cl-b" fill="none" stroke-width="2.4" points="60,43.2 116,67.2 172,95.4 228,123.6 284,136.8 340,156 396,171 452,183.6 508,198.6 564,204.6 620,211.8"/>
+          <polyline class="cl-d" fill="none" stroke-width="2.4" stroke-dasharray="5 4" points="60,109.8 116,132 172,151.8 228,171.6 284,183.6 340,193.8 396,205.2 452,217.2 508,228 564,236.4 620,244.2"/>
+        </svg>
+        <div class="legend">
+          <span><i style="background:var(--accent)"></i>CIFAR-100</span>
+          <span><i style="background:var(--warn)"></i>miniImageNet</span>
+          <span><i style="background:var(--good)"></i>CUB-200</span>
+          <span><i style="background:var(--bad)"></i>Cross-domain (mini→CUB)</span>
+        </div>
+      </div>
+
+      <h3>Cross-domain transfer (miniImageNet → CUB)</h3>
+      <p>The frozen miniImageNet base model reaches <strong>66.7%</strong> on its own domain, then declines to <strong>44.3%</strong> as fine-grained CUB classes stream in — a gentler performance drop (PD 22.4) than the in-domain runs, but with very low novel accuracy (A_N 8.4): the general-object features struggle to separate fine-grained bird species. This is the "forward-compatibility" claim under genuine domain shift, and it shows the reserved space generalises only partially beyond its training distribution.</p>
+    </section>
+
+    <!-- 06 -->
+    <section id="ablation">
+      <h2><span class="h2n">06</span>Ablation study</h2>
+      <p class="kicker">Removing each STAG-STI component, one at a time, on CIFAR-100.</p>
+      <div class="twrap"><table>
+        <caption>Component ablations — CIFAR-100, final session</caption>
+        <thead><tr><th>Configuration</th><th>A₀</th><th>A_T</th><th>A_B</th><th>A_N</th><th>HM</th></tr></thead>
+        <tbody>
+          <tr class="row-hi"><td>Full model</td><td class="metric">78.22</td><td class="metric">49.53</td><td class="metric">68.72</td><td class="metric">20.75</td><td class="metric">31.87</td></tr>
+          <tr><td>− Contrastive pre-conditioning</td><td class="metric">78.53</td><td class="metric">49.28</td><td class="metric">69.97</td><td class="metric">18.25</td><td class="metric">28.95</td></tr>
+          <tr><td>− Topology gating</td><td class="metric">77.75</td><td class="metric">49.69</td><td class="metric">70.98</td><td class="metric">17.75</td><td class="metric">28.40</td></tr>
+          <tr><td>− STI age-decay</td><td class="metric">78.50</td><td class="metric">49.46</td><td class="metric">70.15</td><td class="metric">18.43</td><td class="metric">29.18</td></tr>
+        </tbody>
+      </table></div>
+      <p>Removing any single component leaves overall/final accuracy almost unchanged (≈49.5%) but <strong>lowers the harmonic mean</strong> — because each removal raises A_B slightly while dropping A_N more. In other words, all three components pull in the same direction: they <strong>improve the base↔novel balance</strong>. The full model has the best HM (31.9 vs 28.4–29.2). That is a clean ablation story: the contribution is balance, not raw accuracy.</p>
+    </section>
+
+    <!-- 07 -->
+    <section id="improve">
+      <h2><span class="h2n">07</span>Improvement study</h2>
+      <p class="kicker">Five levers aimed at the novel-class bottleneck — what the evidence actually says.</p>
+      <p>Because A_N is the bottleneck, each lever below targets it. The results are reported honestly: most did not work, and that is itself the finding — the gap to published numbers lives in the frozen representation, not in inference-time tricks.</p>
+
+      <h3>7.1 &nbsp;Transductive prototype rectification <span class="tag good">reliable gain</span></h3>
+      <p>BD-CSPN-style refinement: pseudo-label the unlabelled test queries by nearest prototype, then blend each prototype with the mean of its assigned queries and re-classify. This calibrates the <em>features</em>, and it improved <strong>every metric on every dataset</strong> — the only lever that did.</p>
+      <div class="twrap"><table>
+        <caption>Inductive vs transductive (final session)</caption>
+        <thead><tr><th>Dataset</th><th>Final (ind.)</th><th>Final (transd.)</th><th>A_N (ind.)</th><th>A_N (transd.)</th><th>HM (ind.)</th><th>HM (transd.)</th></tr></thead>
+        <tbody>
+          <tr><td>CIFAR-100</td><td class="metric">49.53</td><td class="metric">50.17 <span class="up">+0.6</span></td><td class="metric">20.75</td><td class="metric">21.45 <span class="up">+0.7</span></td><td class="metric">31.87</td><td class="metric">32.76 <span class="up">+0.9</span></td></tr>
+          <tr><td>miniImageNet</td><td class="metric">40.25</td><td class="metric">40.89 <span class="up">+0.6</span></td><td class="metric">16.45</td><td class="metric">16.53 <span class="up">+0.1</span></td><td class="metric">25.44</td><td class="metric">25.64 <span class="up">+0.2</span></td></tr>
+          <tr><td>CUB-200</td><td class="metric">49.71</td><td class="metric">50.91 <span class="up">+1.2</span></td><td class="metric">30.85</td><td class="metric">33.52 <span class="up">+2.7</span></td><td class="metric">42.64</td><td class="metric">45.06 <span class="up">+2.4</span></td></tr>
+        </tbody>
+      </table></div>
+      <p>The gain is largest on CUB (+2.4 HM), where the better pretrained features give the refinement more signal. <span class="tag warn">caveat</span> This is <strong>transductive</strong> — it uses the whole test set jointly, a stronger protocol than inductive per-query evaluation, and must be reported as such.</p>
+
+      <h3>7.2 &nbsp;Novel-class logit bias <span class="tag warn">trade-off only</span></h3>
+      <p>An additive bias on novel-class logits, tuned on a held-out validation split. It <em>trades</em> base accuracy for novel accuracy: raising it lifts A_N and HM but lowers overall accuracy. It is a metric dial, not a capability gain.</p>
+      <div class="twrap"><table>
+        <caption>Bias sweep — report-split HM vs overall accuracy</caption>
+        <thead><tr><th>Dataset</th><th>bias</th><th>Overall</th><th>A_N</th><th>HM</th></tr></thead>
+        <tbody>
+          <tr><td>CIFAR-100</td><td class="metric">0.5</td><td class="metric">48.4</td><td class="metric">20.3</td><td class="metric">31.2</td></tr>
+          <tr><td></td><td class="metric">1.25</td><td class="metric">44.5 <span class="down">−3.9</span></td><td class="metric">29.5 <span class="up">+9.2</span></td><td class="metric">38.3 <span class="up">+7.1</span></td></tr>
+          <tr class="rule"><td>CUB-200</td><td class="metric">0.5</td><td class="metric">47.5</td><td class="metric">28.7</td><td class="metric">40.2</td></tr>
+          <tr><td></td><td class="metric">0.75</td><td class="metric">46.4</td><td class="metric">30.3</td><td class="metric">40.9</td></tr>
+        </tbody>
+      </table></div>
+
+      <h3>7.3 &nbsp;Inference-time augmentation <span class="tag bad">no gain</span></h3>
+      <p>Test-time augmentation and support augmentation, at both aggressive and mild settings, were <strong>neutral-to-harmful</strong>. The frozen backbone and deterministic prototypes are calibrated to near-clean inputs, so perturbing them at inference only adds train/test mismatch. On CIFAR, mild TTA left A_N flat (20.5→20.4) while lowering overall accuracy; support augmentation lowered A_N.</p>
+
+      <h3>7.4 &nbsp;Base-mean feature centering <span class="tag bad">breaks it</span></h3>
+      <p>Subtracting the base-prototype mean before the cosine classifier <strong>destroyed accuracy</strong> (CIFAR 48 → 16). Centering distorts the geometry the cosine classifier was <em>trained</em> on — a clear dead end.</p>
+
+      <h3>7.5 &nbsp;CLOSER-style base objective <span class="tag warn">inconsistent</span></h3>
+      <p>The deck's own research direction: retrain the Phase-A backbone with a self-supervised contrastive term (spread) plus an inter-class compactness term (pull classes closer for transfer). It genuinely changes the representation — but the effect is <strong>dataset-dependent, not a reliable win</strong>.</p>
+      <div class="twrap"><table>
+        <caption>CLOSER (λ_ssl 0.5, λ_close 0.1) vs baseline — Δ at final session</caption>
+        <thead><tr><th>Dataset</th><th>A₀</th><th>A_T</th><th>A_B</th><th>A_N</th><th>HM</th><th>ΔA_N</th><th>ΔHM</th></tr></thead>
+        <tbody>
+          <tr><td>CIFAR-100</td><td class="metric">71.93</td><td class="metric">46.42</td><td class="metric">61.12</td><td class="metric">24.38</td><td class="metric">34.85</td><td class="metric"><span class="up">+3.6</span></td><td class="metric"><span class="up">+3.0</span></td></tr>
+          <tr><td>miniImageNet</td><td class="metric">63.05</td><td class="metric">37.38</td><td class="metric">53.23</td><td class="metric">13.60</td><td class="metric">21.67</td><td class="metric"><span class="down">−2.8</span></td><td class="metric"><span class="down">−3.8</span></td></tr>
+          <tr><td>CUB-200</td><td class="metric">73.95</td><td class="metric">47.98</td><td class="metric">64.49</td><td class="metric">31.84</td><td class="metric">42.63</td><td class="metric"><span class="up">+1.0</span></td><td class="metric"><span class="flat">−0.0</span></td></tr>
+        </tbody>
+      </table></div>
+      <p>A λ_close sweep on CIFAR showed the base-accuracy cost (~6 points) is a <em>fixed</em> cost of the CLOSER <em>mode</em> — the contrastive term and its aggressive augmentation — not the compactness weight: λ=0.05 matched baseline HM, λ=0.10 was best (HM 34.9), and λ=0.02 was unstable (HM 20.2). The hypothesis that CLOSER would help most on the from-scratch datasets was <strong>refuted by miniImageNet</strong>, where it hurt everything.</p>
+
+      <div class="note finding">
+        <p class="lab" style="color:var(--good)">What the study concludes</p>
+        <p>Only transductive rectification is a dependable improvement. Logit-bias is a trade-off, inference augmentation and centering fail, and CLOSER needs per-dataset tuning to help. No single cheap or one-shot lever closes the gap to FACT/SAVC/CLOSER — that requires systematic per-dataset representation work.</p>
+      </div>
+    </section>
+
+    <!-- 08 -->
+    <section id="bugs">
+      <h2><span class="h2n">08</span>Bugs found &amp; fixed</h2>
+      <p class="kicker">Two real bugs, caught by verifying results rather than trusting exit codes.</p>
+      <div class="note badbox">
+        <p class="lab" style="color:var(--bad)">Bug 1 — CUB collapsed to chance (1%)</p>
+        <p>The base session built one graph over all 100 classes (400 nodes) — out-of-distribution for a GATv2 trained on 15-way episodes, and numerically unreliable on the Apple-Silicon backend. A 10-way probe gave 88.9%, isolating the cause as scale. <strong>Fix:</strong> build base prototypes in training-scale chunks (the memory write ignores class-adjacency for new classes anyway). CUB base went <strong>1% → 77.8%</strong>.</p>
+      </div>
+      <div class="note badbox">
+        <p class="lab" style="color:var(--bad)">Bug 2 — cross-domain eval crashed</p>
+        <p>The novel-class mask was built per-sample instead of per-class (a shape mismatch), and the results used the key <code>acc</code> where the tooling expected <code>accuracy</code>. Both fixed; cross-domain now reports cleanly.</p>
+      </div>
+      <p>The broader lesson: an <code>exit code 0</code> from an unattended run is not evidence of a correct result. Every run in this project was checked against expected shapes and sanity values before being accepted.</p>
+    </section>
+
+    <!-- 09 -->
+    <section id="limits">
+      <h2><span class="h2n">09</span>Caveats &amp; limitations</h2>
+      <p class="kicker">Stated plainly, for the writeup.</p>
+      <ul>
+        <li><strong>Absolute numbers trail published methods.</strong> CUB final 49.7% vs published 57–64%. This is a first working pass with untuned per-dataset hyperparameters; there is real headroom.</li>
+        <li><strong>Published CIFAR-100 / miniImageNet baselines are not filled in</strong> — they must come from the source papers, not be invented.</li>
+        <li><strong>The cross-domain protocol is this project's own definition</strong>, not a citable standard.</li>
+        <li><strong>Transductive results use a stronger protocol</strong> and are labelled as such — they are not directly comparable to inductive published numbers.</li>
+        <li><strong>Single runs, no seeds averaged.</strong> The λ=0.02 CLOSER outlier is a reminder that some points need repetition to trust.</li>
+        <li><strong>A few documented assumptions</strong> remain in the evaluation (e.g. base prototypes from a random 5-shot draw; the novel-logit-bias heuristic), noted in the code.</li>
+      </ul>
+    </section>
+
+    <!-- 10 -->
+    <section id="conclude">
+      <h2><span class="h2n">10</span>Conclusions &amp; future work</h2>
+      <p>The project delivers a reproducible, literature-comparable STAG-STI system across three FSCIL benchmarks plus a cross-domain test, with a complete ablation and a rigorously honest improvement study. The architecture works; the ablations show its three components jointly improve base↔novel balance; and the improvement study maps the space of easy wins — finding that most do not exist.</p>
+      <p><strong>The clearest scientific result</strong> is diagnostic: novel-class accuracy is the binding constraint, and it is set by the frozen representation. Inference-time tricks cannot move it much; only representation-level changes can, and those need per-dataset care.</p>
+      <h3>Recommended next steps</h3>
+      <ol class="list">
+        <li>Adopt <strong>transductive rectification</strong> as a reported variant — the one reliable gain.</li>
+        <li>Fill the published-baseline columns and prepare the comparison table for review.</li>
+        <li>Treat the CLOSER objective as a <strong>tuning problem</strong>: per-dataset λ_ssl / λ_close sweeps and gentler contrastive augmentation, rather than one shared setting.</li>
+        <li>Average over seeds for the headline numbers to quantify variance.</li>
+      </ol>
+    </section>
+
+    <!-- 11 -->
+    <section id="repro">
+      <h2><span class="h2n">11</span>Reproducibility</h2>
+      <p class="kicker">Everything is a commit; every run regenerates from the checkpoints.</p>
+      <pre><code># in-domain (any of cifar100 | miniimagenet | cub200)
+python -m fscil.train_session0  --dataset cub200
+python -m fscil.eval_incremental --dataset cub200
+python -m fscil.eval_incremental --dataset cub200 --transductive
+
+# ablation study (reuses the shared frozen backbone)
+python -m fscil.train_session0  --dataset cifar100 --ablate topology --skip_backbone_pretrain
+python -m fscil.eval_incremental --dataset cifar100 --ablate topology
+
+# CLOSER-style base objective, and the cross-domain test
+python -m fscil.train_session0  --dataset cifar100 --closer
+python -m fscil.eval_crossdomain
+
+# regenerate this report's data tables
+python scripts/make_report.py</code></pre>
+      <p>Results are namespaced so nothing overwrites: baselines in <code>checkpoints/&lt;dataset&gt;/</code>, and variants in <code>ablate-*/</code>, <code>closer/</code>, <code>closer_lc*/</code>, and <code>transductive/</code> subdirectories.</p>
+      <div class="disclaim">
+        <strong>On these numbers.</strong> All figures come from single training runs on Apple-Silicon (mps) with the official splits and deterministic fantasy views. They are internally consistent and reproducible from the committed checkpoints, but are a first working pass — not tuned to compete with published state-of-the-art, and not seed-averaged.
+      </div>
+    </section>
+
+    <footer>
+      STAG-STI · Few-Shot Class-Incremental Learning with Contrastive Representation Learning · all results committed to the project repository.
+    </footer>
+  </main>
+</div>
+</div>
