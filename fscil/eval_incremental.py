@@ -132,6 +132,40 @@ def build_new_class_prototypes_official(backbone, stag_model, full_train_ds, ref
     return _prototypes_from_indices(backbone, stag_model, full_train_ds, per_class_indices, device, M)
 
 
+@torch.no_grad()
+def build_base_prototypes(backbone, stag_model, full_train_ds, class_list, device, M, cap, rng, batch=256):
+    """Base-session prototypes from up to `cap` training samples per class
+    (standard FSCIL: base classes use abundant data; only novel classes are
+    5-shot). Feature extraction is batched per class; the graph runs in
+    training-scale class chunks. Returns P (C, d'), A_tilde (C, C) placeholder."""
+    w_list = []
+    for c in class_list:
+        idxs = full_train_ds.indices_for_class(c)
+        if len(idxs) > cap:
+            idxs = rng.sample(idxs, cap)
+        views = torch.stack([make_fantasy_views(full_train_ds.get_pil(i), M) for i in idxs], 0)  # (n,M,3,H,W)
+        n = views.shape[0]
+        flat = views.view(n * M, *views.shape[-3:])
+        feats = []
+        for s in range(0, flat.shape[0], batch):
+            feats.append(backbone(flat[s:s + batch].to(device)))
+        w_list.append(torch.cat(feats, 0).view(n, M, -1).mean(0))          # (M, d) shot-averaged
+    w_cm_all = torch.stack(w_list, 0)                                        # (C, M, d)
+
+    chunk = max(1, int(getattr(Config, "episode_way", 15)))
+    P_parts = []
+    for st in range(0, len(class_list), chunk):
+        wc = w_cm_all[st:st + chunk]
+        Cg = wc.shape[0]
+        cid = torch.arange(Cg, device=device).unsqueeze(1).expand(Cg, M).reshape(-1)
+        vid = torch.arange(M, device=device).unsqueeze(0).expand(Cg, M).reshape(-1)
+        _, h_en, A_soft = stag_model.encode_prototypes(wc.reshape(Cg * M, -1), cid, vid)
+        Pg, _ = stag_model.build_prototypes(h_en, A_soft, cid, Cg)
+        P_parts.append(Pg)
+    P = torch.cat(P_parts, 0)
+    return P, torch.zeros(P.shape[0], P.shape[0], device=device)
+
+
 def write_new_memory_rows(stag_model, P_new, A_tilde_new, session_idx, device):
     way = P_new.shape[0]
     dim = P_new.shape[1]
@@ -231,6 +265,9 @@ def main():
     parser.add_argument("--transductive", action="store_true",
                          help="Refine prototypes with BD-CSPN using the unlabelled test set "
                               "(stronger, transductive protocol). Writes to a transductive/ subdir.")
+    parser.add_argument("--full_base", action="store_true",
+                         help="Build base-session prototypes from up to Config.base_proto_cap "
+                              "training samples/class (standard FSCIL) instead of a 5-shot draw.")
     parser.add_argument("--closer", action="store_true",
                          help="Evaluate the CLOSER-trained model (reads/writes checkpoints/<ds>/closer/).")
     parser.add_argument("--closer_lambda_close", type=float, default=None,
@@ -303,7 +340,12 @@ def main():
         # Incremental sessions (>=1) use the exact official few-shot samples for
         # reproducibility; the base session builds its prototypes from a random
         # k-shot draw of the abundant base training data.
-        if use_official and session_idx >= 1:
+        if session_idx == 0 and args.full_base:
+            P_new, A_tilde_new = build_base_prototypes(
+                backbone, stag_model, full_train_ds, class_list, device,
+                M=Config.num_views, cap=Config.base_proto_cap, rng=rng,
+            )
+        elif use_official and session_idx >= 1:
             refs = official_session_refs(spec, plan, session_idx)
             P_new, A_tilde_new = build_new_class_prototypes_official(
                 backbone, stag_model, full_train_ds, refs, class_list, device, M=Config.num_views,
@@ -354,7 +396,11 @@ def main():
     print(f"Final novel-only accuracy (A_N):       {aN:.2f}%")
     print(f"Final harmonic mean (A_B, A_N):        {hmT:.2f}%")
 
-    out_dir = os.path.join(Config.ckpt_dir, "transductive") if args.transductive else Config.ckpt_dir
+    out_dir = Config.ckpt_dir
+    if args.full_base:
+        out_dir = os.path.join(out_dir, "fullbase")
+    if args.transductive:
+        out_dir = os.path.join(out_dir, "transductive")
     os.makedirs(out_dir, exist_ok=True)
     out_path = os.path.join(out_dir, "incremental_results.json")
     with open(out_path, "w") as f:

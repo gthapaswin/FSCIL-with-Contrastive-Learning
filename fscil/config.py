@@ -96,6 +96,11 @@ class Config:
     # val split -- 0.0 disables it entirely.
     novel_logit_bias = 0.5
 
+    # Base-session prototype estimation: standard FSCIL builds base prototypes
+    # from abundant base data (not a 5-shot draw). Cap samples/class for speed;
+    # used only when eval runs with --full_base.
+    base_proto_cap = 100
+
     # ---------------- Misc ----------------
     seed = 42
     num_workers = 2            # keep low on Mac laptops
