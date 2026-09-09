@@ -270,6 +270,8 @@ def main():
                               "training samples/class (standard FSCIL) instead of a 5-shot draw.")
     parser.add_argument("--closer", action="store_true",
                          help="Evaluate the CLOSER-trained model (reads/writes checkpoints/<ds>/closer/).")
+    parser.add_argument("--tag", type=str, default=None,
+                         help="Read/write under checkpoints/<ds>/<tag>/ (must match the training --tag).")
     parser.add_argument("--closer_lambda_close", type=float, default=None,
                          help="Must match the value used at training time (for the closer_lc<val>/ namespace).")
     parser.add_argument("--backbone_ckpt", type=str, default=None,
@@ -291,6 +293,9 @@ def main():
         sub = "closer" if Config.closer_lambda_close == 0.1 else f"closer_lc{Config.closer_lambda_close}"
         Config.ckpt_dir = os.path.join(Config.ckpt_dir, sub)
         Config.backbone_ckpt_dir = os.path.join(Config.backbone_ckpt_dir, sub)
+    if args.tag:
+        Config.ckpt_dir = os.path.join(Config.ckpt_dir, args.tag)
+        Config.backbone_ckpt_dir = os.path.join(Config.backbone_ckpt_dir, args.tag)
     shot = args.shot if args.shot is not None else Config.shot
     set_seed(Config.seed)
     device = get_device(Config.device)

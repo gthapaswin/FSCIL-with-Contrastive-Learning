@@ -451,6 +451,8 @@ def main():
                          help="cifar100 | miniimagenet | cub200")
     parser.add_argument("--closer", action="store_true",
                          help="Use the CLOSER-style Phase-A objective (transfer-friendly base).")
+    parser.add_argument("--tag", type=str, default=None,
+                         help="Namespace this run under checkpoints/<ds>/<tag>/ (for variant runs).")
     parser.add_argument("--closer_lambda_close", type=float, default=None,
                          help="Override inter-class compactness weight (default 0.1). "
                               "Non-default values namespace the run as closer_lc<val>/.")
@@ -478,6 +480,9 @@ def main():
         sub = "closer" if Config.closer_lambda_close == 0.1 else f"closer_lc{Config.closer_lambda_close}"
         Config.ckpt_dir = os.path.join(Config.ckpt_dir, sub)
         Config.backbone_ckpt_dir = os.path.join(Config.backbone_ckpt_dir, sub)
+    if args.tag:
+        Config.ckpt_dir = os.path.join(Config.ckpt_dir, args.tag)
+        Config.backbone_ckpt_dir = os.path.join(Config.backbone_ckpt_dir, args.tag)
     set_seed(Config.seed)
     device = get_device(Config.device)
     print(f"Using device: {device}")
