@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Auto-refresh the README results block from checkpoints/ on every commit.
+# Enable once with:  git config core.hooksPath .githooks
+# Never blocks a commit: if regeneration fails, it warns and continues.
+set -uo pipefail
+REPO="$(git rev-parse --show-toplevel)"
+PY="$REPO/.venv/bin/python"
+[ -x "$PY" ] || PY="$(command -v python3 || command -v python || true)"
+[ -n "$PY" ] || { echo "[pre-commit] no python; skipping README refresh"; exit 0; }
+
+if "$PY" "$REPO/scripts/gen_readme.py"; then
+  git add "$REPO/README.md" 2>/dev/null || true
+else
+  echo "[pre-commit] gen_readme failed; committing without README refresh"
+fi
+exit 0
