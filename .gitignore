@@ -3,3 +3,7 @@ data/
 __pycache__/
 *.pyc
 .venv/
+# Generated presentation/report deliverables (kept local, not tracked)
+results/*.pptx
+results/*.docx
+results/ppt_assets/
