@@ -100,3 +100,24 @@ held-out validation also selected 0.5. Final acc / A_B / A_N / HM (%):
   (miniImageNet: +2.9 HM at -0.8 final).
 - vs the Review II result (final 49.53, HM 31.87): +6.8 final, +15.1 HM.
 - The standard (non-held-out) Phase B on this backbone collapses (HM 15.01).
+
+## Recipe on CUB-200 (`scripts/run_recipe.sh cub200 30`)
+
+Reserve + CutMix backbone (30 ep, ImageNet-pretrained ResNet-18), held-out
+Phase B (best epoch 1; held-out HM falls from 80.6 to ~77 afterwards), full-base
+fused eval. Held-out validation selected lam=0.75. Final acc / A_B / A_N / HM (%):
+
+| lam | 0.25 | **0.5 (headline)** | 0.75 (val-selected) | 1 (NCM, same backbone) |
+|---|---|---|---|---|
+| CUB-200 | 32.02 / 19.20 / 44.54 / 26.84 | **49.28 / 54.40 / 44.27 / 48.81** | 53.69 / 64.18 / 43.45 / 51.82 | 55.51 / 68.72 / 42.59 / 52.59 |
+
+- **Negative on CUB:** the residual head is below NCM on the same backbone
+  (-3.8 HM at lam=0.5, -0.8 at the val-selected 0.75). A_N gains only +1.7
+  while A_B drops 14 points: on fine-grained classes with a pretrained
+  backbone the raw-feature means are already strong and the head mostly
+  adds base-class confusion.
+- The held-out validation is flat over lam=0.5-1 (80.6/80.8/80.3) and cannot
+  detect this.
+- Standard Phase B on this backbone: final 50.24, HM 42.95.
+- lam=0 is degenerate (final 0.43): as on mini, the residual-trained branch is
+  not a standalone classifier.
