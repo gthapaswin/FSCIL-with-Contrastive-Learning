@@ -65,7 +65,7 @@ def main():
     _git("add", "results")  # include the regenerated report in the same commit
     msg = (f"{args.label} result: {summary}\n\n"
            "Auto-committed by the training orchestrator.\n\n"
-           "Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\n"
+           "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>\n"
            "Claude-Session: https://claude.ai/code/session_01GDGJYxSeGz7wbgpdPrPcEm")
     cm = _git("commit", "-m", msg)
     if cm.returncode != 0 and "nothing to commit" in (cm.stdout + cm.stderr):
