@@ -274,6 +274,8 @@ def main():
                          help="Read/write under checkpoints/<ds>/<tag>/ (must match the training --tag).")
     parser.add_argument("--closer_lambda_close", type=float, default=None,
                          help="Must match the value used at training time (for the closer_lc<val>/ namespace).")
+    parser.add_argument("--seed", type=int, default=None,
+                         help="Must match the training --seed (reads/writes the seed<N>/ namespace).")
     parser.add_argument("--backbone_ckpt", type=str, default=None,
                          help="Path to backbone checkpoint. Defaults to checkpoints/backbone_base.pt "
                               "(final-epoch). Pass checkpoints/backbone_base_best.pt to use the best-val "
@@ -296,6 +298,10 @@ def main():
     if args.tag:
         Config.ckpt_dir = os.path.join(Config.ckpt_dir, args.tag)
         Config.backbone_ckpt_dir = os.path.join(Config.backbone_ckpt_dir, args.tag)
+    if args.seed is not None and args.seed != Config.seed:
+        Config.seed = args.seed
+        Config.ckpt_dir = os.path.join(Config.ckpt_dir, f"seed{args.seed}")
+        Config.backbone_ckpt_dir = os.path.join(Config.backbone_ckpt_dir, f"seed{args.seed}")
     shot = args.shot if args.shot is not None else Config.shot
     set_seed(Config.seed)
     device = get_device(Config.device)

@@ -92,6 +92,42 @@ def set_seed(seed):
 
 
 # ---------------------------------------------------------------------------
+# Resumable training state. Long runs on a laptop get killed partway through;
+# saving model + optimizer + LR-scheduler + RNG state every epoch lets a run
+# continue on the exact cosine schedule instead of being salvaged half-trained.
+# ---------------------------------------------------------------------------
+def _rng_state(extra_rngs=()):
+    return {"torch": torch.get_rng_state(), "numpy": np.random.get_state(),
+            "random": random.getstate(), "extra": [r.getstate() for r in extra_rngs]}
+
+
+def _set_rng_state(s, extra_rngs=()):
+    torch.set_rng_state(s["torch"].cpu())   # map_location may have moved it to the GPU
+    np.random.set_state(s["numpy"])
+    random.setstate(s["random"])
+    for r, st in zip(extra_rngs, s.get("extra", [])):
+        r.setstate(st)
+
+
+def _save_state(path, state):
+    tmp = path + ".tmp"
+    torch.save(state, tmp)
+    os.replace(tmp, path)   # atomic: a kill mid-write never corrupts the last good state
+
+
+def _load_state(path, epochs, device):
+    """Return the saved state, or None. Refuses a state from a run with a
+    different epoch count, since its cosine schedule would not match."""
+    if not os.path.exists(path):
+        return None
+    st = torch.load(path, map_location=device, weights_only=False)
+    if st["epochs"] != epochs:
+        raise RuntimeError(f"{path} was saved for a {st['epochs']}-epoch run, but this run asks for "
+                           f"{epochs}. Delete it or pass the original epoch count.")
+    return st
+
+
+# ---------------------------------------------------------------------------
 # Mixup / CutMix (Phase A regularization -- randomly picks one per batch)
 # ---------------------------------------------------------------------------
 def mixup_cutmix_batch(imgs, labels, num_classes, device):
@@ -147,8 +183,23 @@ def pretrain_backbone(base_classes, device, epochs, out_path):
     out_dir = os.path.dirname(out_path)
     os.makedirs(out_dir, exist_ok=True)
     best_path = out_path.replace(".pt", "_best.pt")
+    state_path = os.path.join(out_dir, "phase_a_state.pt")
 
-    for epoch in range(1, epochs + 1):
+    start_epoch = 1
+    st = _load_state(state_path, epochs, device)
+    if st is not None:
+        model.load_state_dict(st["model"]); opt.load_state_dict(st["opt"]); sched.load_state_dict(st["sched"])
+        history = st["history"]
+        best_val_acc, best_epoch, patience_ctr = st["best_val_acc"], st["best_epoch"], st["patience_ctr"]
+        _set_rng_state(st["rng"])
+        start_epoch = st["epoch"] + 1
+        if st["done"]:
+            print(f"[Backbone] Phase A already finished ({st['epoch']} epochs, best {best_val_acc*100:.2f}%)")
+            start_epoch = epochs + 1
+        else:
+            print(f"[Backbone] resuming at epoch {start_epoch}/{epochs} (best so far {best_val_acc*100:.2f}%)")
+
+    for epoch in range(start_epoch, epochs + 1):
         model.train()
         t0 = time.time()
         total_loss, correct, total = 0.0, 0, 0
@@ -202,9 +253,18 @@ def pretrain_backbone(base_classes, device, epochs, out_path):
 
         flag = " *" if improved else ""
         print(f"[Backbone] epoch {epoch:03d}/{epochs} | train_loss {train_loss:.4f} | val_loss {val_loss:.4f} "
-              f"| train_acc {train_acc*100:.2f}% | val_acc {val_acc*100:.2f}%{flag} | {time.time()-t0:.1f}s")
+              f"| train_acc {train_acc*100:.2f}% | val_acc {val_acc*100:.2f}%{flag} | {time.time()-t0:.1f}s",
+              flush=True)
 
-        if patience_ctr >= Config.early_stop_patience:
+        # patience 0 disables early stopping (long cosine runs plateau mid-schedule)
+        stop = Config.early_stop_patience > 0 and patience_ctr >= Config.early_stop_patience
+        _save_state(state_path, {
+            "epochs": epochs, "epoch": epoch, "done": stop or epoch == epochs,
+            "model": model.state_dict(), "opt": opt.state_dict(), "sched": sched.state_dict(),
+            "history": history, "best_val_acc": best_val_acc, "best_epoch": best_epoch,
+            "patience_ctr": patience_ctr, "rng": _rng_state(),
+        })
+        if stop:
             print(f"[Backbone] early stopping: no val_acc improvement for {Config.early_stop_patience} epochs "
                   f"(best {best_val_acc*100:.2f}% at epoch {best_epoch})")
             break
@@ -328,8 +388,25 @@ def train_stag_sti(backbone, base_classes, device, epochs, out_path):
     best_val_acc, best_epoch, patience_ctr = 0.0, 0, 0
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     best_path = out_path.replace(".pt", "_best.pt")
+    state_path = os.path.join(os.path.dirname(out_path), "phase_b_state.pt")
+    samplers = (train_sampler.rng, val_sampler.rng)
 
-    for epoch in range(1, epochs + 1):
+    start_epoch = 1
+    st = _load_state(state_path, epochs, device)
+    if st is not None:
+        stag_model.load_state_dict(st["model"]); optimizer.load_state_dict(st["opt"])
+        scheduler.load_state_dict(st["sched"])
+        history = st["history"]
+        best_val_acc, best_epoch, patience_ctr = st["best_val_acc"], st["best_epoch"], st["patience_ctr"]
+        _set_rng_state(st["rng"], samplers)
+        start_epoch = st["epoch"] + 1
+        if st["done"]:
+            print(f"[STAG-STI] Phase B already finished ({st['epoch']} epochs, best {best_val_acc*100:.2f}%)")
+            start_epoch = epochs + 1
+        else:
+            print(f"[STAG-STI] resuming at epoch {start_epoch}/{epochs} (best so far {best_val_acc*100:.2f}%)")
+
+    for epoch in range(start_epoch, epochs + 1):
         t0 = time.time()
         agg = {k: [] for k in keys}
         for _ in range(Config.episodes_per_epoch):
@@ -363,9 +440,16 @@ def train_stag_sti(backbone, base_classes, device, epochs, out_path):
               f"(cls {history['train_cls'][-1]:.4f}, supcon {history['train_supcon'][-1]:.4f}, "
               f"graph {history['train_graph'][-1]:.4f}, stab {history['train_stab'][-1]:.4f}) "
               f"| train_query_acc {history['train_acc'][-1]*100:.2f}% | val_query_acc {val_acc*100:.2f}%{flag} "
-              f"| {time.time()-t0:.1f}s")
+              f"| {time.time()-t0:.1f}s", flush=True)
 
-        if patience_ctr >= Config.main_early_stop_patience:
+        stop = Config.main_early_stop_patience > 0 and patience_ctr >= Config.main_early_stop_patience
+        _save_state(state_path, {
+            "epochs": epochs, "epoch": epoch, "done": stop or epoch == epochs,
+            "model": stag_model.state_dict(), "opt": optimizer.state_dict(), "sched": scheduler.state_dict(),
+            "history": history, "best_val_acc": best_val_acc, "best_epoch": best_epoch,
+            "patience_ctr": patience_ctr, "rng": _rng_state(samplers),
+        })
+        if stop:
             print(f"[STAG-STI] early stopping: no val_query_acc improvement for "
                   f"{Config.main_early_stop_patience} epochs (best {best_val_acc*100:.2f}% at epoch {best_epoch})")
             break
@@ -466,7 +550,18 @@ def main():
     parser.add_argument("--main_epochs", type=int, default=Config.main_epochs)
     parser.add_argument("--skip_backbone_pretrain", action="store_true",
                          help="Skip Phase A and load an existing checkpoint instead.")
+    parser.add_argument("--seed", type=int, default=None,
+                         help="Random seed (default Config.seed=42). A non-default seed namespaces the "
+                              "run under seed<N>/ so seed-averaged runs never overwrite the baseline.")
+    parser.add_argument("--patience", type=int, default=None,
+                         help="Phase-A early-stop patience; 0 disables (recommended for long cosine runs).")
+    parser.add_argument("--main_patience", type=int, default=None,
+                         help="Phase-B early-stop patience; 0 disables.")
     args = parser.parse_args()
+    if args.patience is not None:
+        Config.early_stop_patience = args.patience
+    if args.main_patience is not None:
+        Config.main_early_stop_patience = args.main_patience
 
     spec = Config.apply_dataset(args.dataset)
     ablations = Config.apply_ablation(args.ablate)
@@ -483,9 +578,13 @@ def main():
     if args.tag:
         Config.ckpt_dir = os.path.join(Config.ckpt_dir, args.tag)
         Config.backbone_ckpt_dir = os.path.join(Config.backbone_ckpt_dir, args.tag)
+    if args.seed is not None and args.seed != Config.seed:
+        Config.seed = args.seed
+        Config.ckpt_dir = os.path.join(Config.ckpt_dir, f"seed{args.seed}")
+        Config.backbone_ckpt_dir = os.path.join(Config.backbone_ckpt_dir, f"seed{args.seed}")
     set_seed(Config.seed)
     device = get_device(Config.device)
-    print(f"Using device: {device}")
+    print(f"Using device: {device} | seed {Config.seed}")
     print(f"Dataset: {spec.pretty_name} | backbone: {Config.backbone_type} | "
           f"{spec.num_base_classes} base + {spec.num_incremental_sessions}x{spec.way}-way "
           f"{spec.shot}-shot | output -> {Config.ckpt_dir}")

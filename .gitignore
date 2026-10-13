@@ -7,3 +7,7 @@ __pycache__/
 results/*.pptx
 results/*.docx
 results/ppt_assets/
+
+# Resumable-training state (model + optimizer + RNG, ~90MB each; local only)
+*_state.pt
+*.pt.tmp
