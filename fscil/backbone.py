@@ -100,3 +100,23 @@ class BackboneWithHead(nn.Module):
 
     def project_ssl(self, feat):
         return torch.nn.functional.normalize(self.ssl_head(feat), dim=-1)
+
+
+class ReserveHead(nn.Module):
+    """Phase A head for the forward-compatible reserve: cosine classifier over
+    num_base real + num_virtual reserved prototypes. Discarded with the frozen
+    backbone, like BackboneWithHead's linear classifier."""
+
+    def __init__(self, num_base_classes, num_virtual, out_dim=512, backbone_type="cifar_resnet18", scale=16.0):
+        super().__init__()
+        self.backbone = build_backbone(backbone_type, out_dim=out_dim)
+        self.num_base = num_base_classes
+        self.scale = scale
+        self.protos = nn.Parameter(torch.randn(num_base_classes + num_virtual, out_dim) * 0.01)
+
+    def forward(self, x):
+        """Returns (logits over base + virtual, feat); callers slice [:, :num_base]."""
+        feat = self.backbone(x)
+        f = torch.nn.functional.normalize(feat, dim=-1)
+        w = torch.nn.functional.normalize(self.protos, dim=-1)
+        return self.scale * f @ w.t(), feat

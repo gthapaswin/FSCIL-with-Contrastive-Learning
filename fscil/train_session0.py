@@ -45,7 +45,7 @@ from torch.utils.data import DataLoader
 from fscil.config import Config
 from fscil.data import (build_dataset, base_transforms, get_official_split, EpisodeSampler,
                         contrastive_transforms, TwoViewDataset)
-from fscil.backbone import BackboneWithHead, build_backbone
+from fscil.backbone import BackboneWithHead, ReserveHead, build_backbone
 from fscil.pipeline import StagStiModel
 
 
@@ -156,6 +156,38 @@ def mixup_cutmix_batch(imgs, labels, num_classes, device):
 
 
 # ---------------------------------------------------------------------------
+# Forward-compatible reserve (Phase A, --reserve)
+# ---------------------------------------------------------------------------
+def reserve_loss(model, imgs, labels, nb):
+    """FACT-style loss over num_base real + virtual prototypes. Returns
+    (loss, base-only logits for accuracy).
+      l_cls  : CE over real + virtual, so base samples stay off the virtual slots
+      l_slot : with the true class masked out, the nearest virtual prototype is
+               the target -- each base sample keeps a virtual class as its
+               runner-up, reserving space next to it for future classes
+      l_virt : a 50/50-ish mixture of two different base classes is a stand-in
+               for an unseen class, and is trained onto its nearest virtual slot
+    """
+    B = imgs.size(0)
+    lam = float(np.random.beta(Config.reserve_mix_alpha, Config.reserve_mix_alpha))
+    perm = torch.randperm(B, device=imgs.device)
+    diff = labels != labels[perm]
+    mixed = (lam * imgs + (1 - lam) * imgs[perm])[diff]
+    logits_all, _ = model(torch.cat([imgs, mixed]))   # one pass: shared BN stats
+    logits, logits_m = logits_all[:B], logits_all[B:]
+
+    l_cls = F.cross_entropy(logits, labels, label_smoothing=Config.label_smoothing)
+    masked = logits.scatter(1, labels[:, None], -1e4)
+    slot = masked[:, nb:].argmax(1) + nb
+    l_slot = F.cross_entropy(masked, slot)
+    loss = l_cls + Config.reserve_lambda_slot * l_slot
+    if logits_m.size(0) > 0:
+        vslot = logits_m[:, nb:].argmax(1) + nb
+        loss = loss + Config.reserve_lambda_virtual * F.cross_entropy(logits_m, vslot)
+    return loss, logits[:, :nb]
+
+
+# ---------------------------------------------------------------------------
 # Phase A: backbone pretraining on base classes (plain classification)
 # ---------------------------------------------------------------------------
 def pretrain_backbone(base_classes, device, epochs, out_path):
@@ -168,14 +200,24 @@ def pretrain_backbone(base_classes, device, epochs, out_path):
     test_loader = DataLoader(test_ds, batch_size=256, shuffle=False,
                               num_workers=Config.num_workers)
 
-    model = BackboneWithHead(num_base_classes=len(base_classes), out_dim=Config.backbone_out_dim,
-                             backbone_type=Config.backbone_type).to(device)
+    nb = len(base_classes)
+    if Config.use_reserve:
+        nv = Config.reserve_num_virtual or Config.num_novel_classes
+        model = ReserveHead(nb, nv, out_dim=Config.backbone_out_dim, backbone_type=Config.backbone_type,
+                            scale=Config.reserve_scale).to(device)
+    else:
+        model = BackboneWithHead(num_base_classes=nb, out_dim=Config.backbone_out_dim,
+                                 backbone_type=Config.backbone_type).to(device)
     opt = torch.optim.SGD(model.parameters(), lr=Config.backbone_pretrain_lr,
                            momentum=0.9, weight_decay=Config.backbone_pretrain_weight_decay, nesterov=True)
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=epochs)
 
     print(f"\n=== Phase A: backbone pretraining on {len(base_classes)} base classes for {epochs} epochs ===")
-    if Config.use_mixup_cutmix:
+    if Config.use_reserve:
+        # reserve mode replaces Mixup/CutMix: its own class mixtures are the virtual classes
+        print(f"Forward-compatible reserve: {nv} virtual prototypes (scale {Config.reserve_scale}, "
+              f"lambda_slot {Config.reserve_lambda_slot}, lambda_virtual {Config.reserve_lambda_virtual})")
+    elif Config.use_mixup_cutmix:
         print("Mixup/CutMix enabled (randomly applied per batch)")
 
     history = {"train_loss": [], "val_loss": [], "train_acc": [], "val_acc": []}
@@ -205,7 +247,10 @@ def pretrain_backbone(base_classes, device, epochs, out_path):
         total_loss, correct, total = 0.0, 0, 0
         for imgs, labels in train_loader:
             imgs, labels = imgs.to(device), labels.to(device)
-            if Config.use_mixup_cutmix:
+            if Config.use_reserve:
+                loss, logits = reserve_loss(model, imgs, labels, nb)
+                acc_labels = labels
+            elif Config.use_mixup_cutmix:
                 imgs, labels_a, labels_b, lam = mixup_cutmix_batch(imgs, labels, len(base_classes), device)
                 logits, _ = model(imgs)
                 loss = (lam * F.cross_entropy(logits, labels_a, label_smoothing=Config.label_smoothing)
@@ -232,6 +277,7 @@ def pretrain_backbone(base_classes, device, epochs, out_path):
             for imgs, labels in test_loader:
                 imgs, labels = imgs.to(device), labels.to(device)
                 logits, _ = model(imgs)
+                logits = logits[:, :nb]   # reserve head: score base classes only
                 vloss = F.cross_entropy(logits, labels, label_smoothing=Config.label_smoothing)
                 val_loss_sum += vloss.item() * imgs.size(0)
                 val_correct += (logits.argmax(1) == labels).sum().item()
@@ -535,6 +581,9 @@ def main():
                          help="cifar100 | miniimagenet | cub200")
     parser.add_argument("--closer", action="store_true",
                          help="Use the CLOSER-style Phase-A objective (transfer-friendly base).")
+    parser.add_argument("--reserve", action="store_true",
+                         help="Forward-compatible reserve in Phase A (FACT-style virtual prototypes). "
+                              "Defaults the run to --tag reserve so the baseline is never overwritten.")
     parser.add_argument("--tag", type=str, default=None,
                          help="Namespace this run under checkpoints/<ds>/<tag>/ (for variant runs).")
     parser.add_argument("--closer_lambda_close", type=float, default=None,
@@ -575,6 +624,9 @@ def main():
         sub = "closer" if Config.closer_lambda_close == 0.1 else f"closer_lc{Config.closer_lambda_close}"
         Config.ckpt_dir = os.path.join(Config.ckpt_dir, sub)
         Config.backbone_ckpt_dir = os.path.join(Config.backbone_ckpt_dir, sub)
+    if args.reserve:
+        Config.use_reserve = True
+        args.tag = args.tag or "reserve"
     if args.tag:
         Config.ckpt_dir = os.path.join(Config.ckpt_dir, args.tag)
         Config.backbone_ckpt_dir = os.path.join(Config.backbone_ckpt_dir, args.tag)

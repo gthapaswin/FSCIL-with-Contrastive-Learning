@@ -118,6 +118,19 @@ class Config:
     closer_ssl_temp = 0.1         # NT-Xent temperature
     closer_ssl_dim = 128          # SSL projection-head output dim
 
+    # ---------------- Forward-compatible reserve (Phase A) ----------------
+    # FACT-style (Zhou et al., CVPR'22): a cosine head with extra "virtual"
+    # prototypes that stand in for future classes. Base samples are pushed to
+    # sit second-closest to a virtual prototype, and mixtures of two base
+    # classes are trained to land on one, so the frozen feature space keeps
+    # room for novel classes. Enabled by `--reserve` on train_session0.
+    use_reserve = False
+    reserve_num_virtual = None    # None -> num_novel_classes
+    reserve_scale = 16.0          # cosine-logit temperature
+    reserve_lambda_slot = 0.1     # base sample -> nearest virtual (gt masked)
+    reserve_lambda_virtual = 0.1  # class mixture -> nearest virtual
+    reserve_mix_alpha = 2.0       # Beta(a,a); a>1 keeps mixtures near 50/50
+
     # ---------------- Ablations (slide-17 component study) ----------------
     # Set via Config.apply_ablation([...]). Each disables one STAG-STI piece:
     #   supcon   -> no contrastive pre-conditioning (lambda_supcon = 0)
