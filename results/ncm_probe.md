@@ -64,3 +64,24 @@ and plain NCM (lam=1) on each frozen backbone.
   these features. The head, not the backbone, is now the bottleneck.
 - Reserve without CutMix (reserve100) overfit to 99% train accuracy and
   transferred worst (NCM HM 12.35).
+
+## Held-out Phase B on the reserve + CutMix backbone (`--heldout`, mini)
+
+Phase B trained on 45 base classes with the residual fused into its loss
+(lam_train 0.5); checkpoint and lam selected on 15 held-out base classes, not
+the test set. Test (full-base, novel bias), final acc / A_B / A_N / HM (%):
+
+| lam | 0 | 0.25 | 0.5 | **0.75 (val-selected)** | 1 (NCM) |
+|---|---|---|---|---|---|
+| held-out Phase B | 0.96 / 0.00 / 2.40 / 0.00 | 43.23 / 53.25 / **28.20 / 36.87** | 46.77 / 61.38 / 24.85 / 35.38 | **47.34 / 63.70 / 22.80 / 33.58** | 47.60 / 64.88 / 21.67 / 32.49 |
+
+- At the validation-chosen lam=0.75 the head beats plain NCM on HM (+1.1) and
+  A_N (+1.1) at -0.3 final accuracy. Lower lam trades final accuracy for HM
+  (lam=0.25: HM 36.87, A_N 28.20, the best novel accuracy on mini so far).
+- The held-out validation is nearly flat across lam=0.5-1 (HM 74.3-74.5),
+  because the backbone saw the held-out classes in Phase A: it cannot rank
+  lam the way the true novel test does.
+- The best checkpoint is epoch 2 (train query accuracy is already 98.8% at
+  epoch 1): Phase B fits base episodes almost immediately.
+- With residual training, the STAG-STI branch alone (lam=0) is not a usable
+  classifier; it only works as a residual.
