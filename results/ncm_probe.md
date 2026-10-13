@@ -45,3 +45,22 @@ lam=0.75 gives the best final accuracy on all three datasets (STAG-STI adds
 information NCM lacks) and +9.7 / +4.3 / +10.1 HM over STAG-STI alone. On HM,
 pure NCM is still best on CIFAR and mini. lam was swept on the test set here;
 a paper must fix it on held-out base-class validation episodes.
+
+## Backbone comparison on miniImageNet (full-base, novel bias on)
+
+Final acc / A_B / A_N / HM (%) for STAG-STI alone (lam=0), fused (lam=0.75)
+and plain NCM (lam=1) on each frozen backbone.
+
+| Backbone | lam=0 (STAG-STI) | lam=0.75 | lam=1 (NCM) |
+|---|---|---|---|
+| baseline (early-stopped) | 41.40 / 59.07 / 14.90 / 23.80 | 43.50 / 60.32 / 18.28 / 28.05 | 43.40 / 59.43 / 19.35 / 29.19 |
+| bb100 (100 ep) | 45.81 / 68.98 / 11.05 / 19.05 | 46.98 / 67.12 / 16.78 / 26.84 | 46.50 / 65.18 / 18.48 / 28.79 |
+| reserve_cm100 (100 ep, reserve + CutMix) | 44.15 / 68.13 / 8.17 / 14.60 | 47.55 / 66.65 / 18.90 / 29.45 | **47.69 / 65.30 / 21.28 / 32.09** |
+
+- The reserve + CutMix backbone transfers best: under NCM, +2.8 A_N and +3.3 HM
+  over bb100 at the same epochs. This is the best miniImageNet result so far.
+- The STAG-STI head degrades as the backbone gets stronger (lam=0 HM 23.8 ->
+  19.1 -> 14.6): Phase B, trained on base episodes, collapses novel classes on
+  these features. The head, not the backbone, is now the bottleneck.
+- Reserve without CutMix (reserve100) overfit to 99% train accuracy and
+  transferred worst (NCM HM 12.35).
