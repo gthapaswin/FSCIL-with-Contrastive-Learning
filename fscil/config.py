@@ -132,6 +132,22 @@ class Config:
     reserve_mix_alpha = 2.0       # Beta(a,a); a>1 keeps mixtures near 50/50
     reserve_cutmix = False        # also Mixup/CutMix the real-class branch (--reserve_cutmix)
 
+    # ---------------- Held-out Phase B (--heldout) ----------------
+    # Phase B normally trains AND validates on episodes of the same base
+    # classes, so model selection cannot see novel-class collapse. --heldout
+    # trains on (base - holdout) classes and selects the checkpoint by the HM
+    # of a small FSCIL-style test: seen classes (abundant-shot prototypes) +
+    # held-out classes (5-shot groups, the stand-in novel side), scored jointly. Queries are also scored with the raw-feature
+    # residual so the head learns what to add on top of nearest-class-mean.
+    use_heldout = False
+    heldout_classes = 15          # base classes withheld from Phase B training
+    residual_lambda = 0.5         # training-time weight of the raw-feature NCM cosine
+    heldout_seen_shots = 20       # train images per seen class for its validation prototype
+    heldout_val_held_way = 5      # held-out classes arrive in groups of this size (like sessions)
+    heldout_draws = 5             # fixed 5-shot support draws for the held-out classes
+    heldout_queries = 50          # test images per class used as validation queries
+    heldout_lams = (0.0, 0.25, 0.5, 0.75, 1.0)   # fusion weights tried for selecting lam
+
     # ---------------- Ablations (slide-17 component study) ----------------
     # Set via Config.apply_ablation([...]). Each disables one STAG-STI piece:
     #   supcon   -> no contrastive pre-conditioning (lambda_supcon = 0)

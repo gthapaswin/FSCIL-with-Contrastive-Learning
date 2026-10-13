@@ -44,7 +44,7 @@ from torch.utils.data import DataLoader
 
 from fscil.config import Config
 from fscil.data import (build_dataset, base_transforms, get_official_split, EpisodeSampler,
-                        contrastive_transforms, TwoViewDataset)
+                        contrastive_transforms, TwoViewDataset, make_fantasy_views)
 from fscil.backbone import BackboneWithHead, ReserveHead, build_backbone
 from fscil.pipeline import StagStiModel
 
@@ -393,7 +393,11 @@ def run_episode(backbone, stag_model, sampler, device, optimizer=None):
 
     # ---- Stage 8: cosine classification of queries ----
     z_q = stag_model.projection(query_feats)
-    logits = stag_model.classify_query(z_q, H_t)
+    if Config.use_heldout:
+        R = raw_class_means(raw_feats.view(way, shot, M, -1)[:, :, 0])
+        logits = fused_logits(stag_model, z_q, H_t, query_feats, R, Config.residual_lambda)
+    else:
+        logits = stag_model.classify_query(z_q, H_t)
     l_cls = F.cross_entropy(logits, query_labels, label_smoothing=Config.label_smoothing)
 
     loss = (Config.lambda_cls * l_cls
@@ -413,7 +417,120 @@ def run_episode(backbone, stag_model, sampler, device, optimizer=None):
     }
 
 
+def raw_class_means(f):
+    """Raw-feature residual branch: class mean of L2-normalized backbone
+    features of the clean (identity-view) support shots. f: (way, shot, 512)."""
+    return F.normalize(F.normalize(f, dim=-1).mean(1), dim=-1)
+
+
+def fused_logits(stag_model, z_q, H, f_q, R, lam, bias=0.0):
+    """inv_tau * ((1-lam) cos(z_q, H) + lam cos(f_q, R)) + bias. lam=0 is
+    STAG-STI alone, lam=1 plain nearest-class-mean on raw features. Must match
+    eval_incremental._fused_metrics."""
+    inv_tau = stag_model.classifier.log_inv_tau.exp()
+    s_stag = F.normalize(z_q, dim=-1) @ F.normalize(H, dim=-1).T
+    s_raw = F.normalize(f_q, dim=-1) @ F.normalize(R, dim=-1).T
+    return inv_tau * ((1 - lam) * s_stag + lam * s_raw) + bias
+
+
+def split_heldout(base_classes):
+    """Deterministic (seeded) split of the base classes into Phase B training
+    classes and held-out stand-in novel classes."""
+    rng = random.Random(Config.seed + 7)
+    held = sorted(rng.sample(list(base_classes), Config.heldout_classes))
+    return [c for c in base_classes if c not in held], held
+
+
+class HeldoutValidator:
+    """Phase B model selection on a small FSCIL-style test, scored like
+    eval_incremental --full_base: seen (Phase B training) classes get
+    abundant-shot prototypes, held-out classes arrive as 5-way 5-shot groups,
+    and test queries of all of them are classified jointly with the
+    novel-logit bias on the held-out side. HM(seen acc, held-out acc) is
+    averaged over several fixed support draws. The backbone is frozen, so all
+    backbone features are extracted once here; each call only reruns the head.
+    """
+
+    def __init__(self, backbone, seen_classes, held_classes, device):
+        self.device = device
+        rng = random.Random(Config.seed + 11)
+        train_ds = build_dataset(train=True, allowed_globals=seen_classes + held_classes, transform=None)
+        test_ds = build_dataset(train=False, allowed_globals=seen_classes + held_classes,
+                                transform=base_transforms(train=False))
+        M = Config.num_views
+
+        @torch.no_grad()
+        def support_feats(idxs):
+            views = torch.stack([make_fantasy_views(train_ds.get_pil(i), M) for i in idxs], 0)
+            return backbone(views.view(-1, *views.shape[-3:]).to(device)).view(len(idxs), M, -1)
+
+        def pick(c, n):
+            idxs = train_ds.indices_for_class(c)
+            return rng.sample(idxs, min(n, len(idxs)))
+
+        self.seen = [support_feats(pick(c, Config.heldout_seen_shots)) for c in seen_classes]
+        self.held_draws = [[support_feats(pick(c, Config.episode_shot)) for c in held_classes]
+                           for _ in range(Config.heldout_draws)]
+        q_idx, y = [], []
+        for pos, c in enumerate(seen_classes + held_classes):
+            idxs = test_ds.indices_for_class(c)
+            idxs = rng.sample(idxs, min(Config.heldout_queries, len(idxs)))
+            q_idx += idxs; y += [pos] * len(idxs)
+        with torch.no_grad():
+            self.f_q = torch.cat([backbone(torch.stack([test_ds[i][0] for i in q_idx[s:s + 256]]).to(device))
+                                  for s in range(0, len(q_idx), 256)])
+        self.y = torch.tensor(y, device=device)
+        self.n_seen = len(seen_classes)
+        self.bias = torch.zeros(len(seen_classes) + len(held_classes), device=device)
+        self.bias[self.n_seen:] = Config.novel_logit_bias
+
+    def _prototypes(self, stag_model, feats, group):
+        """feats: list of (shots, M, 512) per class -> H, R; the graph runs in
+        groups of `group` classes, as eval chunks its sessions."""
+        Hs, Rs = [], []
+        dev = self.device
+        for st in range(0, len(feats), group):
+            g = feats[st:st + group]
+            way, M = len(g), g[0].shape[1]
+            w_cm = torch.stack([f.mean(0) for f in g])                       # (way, M, 512)
+            cid = torch.arange(way, device=dev).unsqueeze(1).expand(way, M).reshape(-1)
+            vid = torch.arange(M, device=dev).unsqueeze(0).expand(way, M).reshape(-1)
+            _, h_en, A_soft = stag_model.encode_prototypes(w_cm.reshape(way * M, -1), cid, vid)
+            P, A_tilde = stag_model.build_prototypes(h_en, A_soft, cid, way)
+            H, _, _ = stag_model.update_memory(torch.zeros_like(P), P, A_tilde, torch.zeros(way, device=dev),
+                                               session=0, new_class_mask=torch.ones(way, dtype=torch.bool, device=dev))
+            Hs.append(H)
+            Rs.append(torch.stack([F.normalize(F.normalize(f[:, 0], dim=-1).mean(0), dim=-1) for f in g]))
+        return torch.cat(Hs), torch.cat(Rs)
+
+    @torch.no_grad()
+    def __call__(self, stag_model, lams):
+        """Returns {lam: {"seen", "held", "hm"}} averaged over the support draws."""
+        stag_model.eval()
+        H_s, R_s = self._prototypes(stag_model, self.seen, Config.episode_way)
+        z_q = stag_model.projection(self.f_q)
+        is_seen = self.y < self.n_seen
+        acc = {lam: [] for lam in lams}
+        for draw in self.held_draws:
+            H_h, R_h = self._prototypes(stag_model, draw, Config.heldout_val_held_way)
+            H, R = torch.cat([H_s, H_h]), torch.cat([R_s, R_h])
+            for lam in lams:
+                hit = (fused_logits(stag_model, z_q, H, self.f_q, R, lam, self.bias).argmax(1) == self.y).float()
+                acc[lam].append((hit[is_seen].mean().item(), hit[~is_seen].mean().item()))
+        out = {}
+        for lam, v in acc.items():
+            a, b = float(np.mean([x[0] for x in v])), float(np.mean([x[1] for x in v]))
+            out[lam] = {"seen": a, "held": b, "hm": 2 * a * b / (a + b) if a + b > 0 else 0.0}
+        return out
+
+
 def train_stag_sti(backbone, base_classes, device, epochs, out_path):
+    if Config.use_heldout:
+        train_classes, held_classes = split_heldout(base_classes)
+        print(f"Held-out Phase B: training on {len(train_classes)} classes, validating with "
+              f"{len(held_classes)} held-out classes {held_classes} (residual lambda {Config.residual_lambda})")
+        validator = HeldoutValidator(backbone, train_classes, held_classes, device)
+        base_classes = train_classes
     train_ds = build_dataset(train=True, allowed_globals=base_classes,
                              transform=base_transforms(train=True))
     val_ds = build_dataset(train=False, allowed_globals=base_classes,
@@ -479,6 +596,13 @@ def train_stag_sti(backbone, base_classes, device, epochs, out_path):
             history[f"val_{k}"].append(float(np.mean(val_agg[k])))
 
         val_acc = history["val_acc"][-1]
+        ho = ""
+        if Config.use_heldout:
+            # select on base/novel HM of mixed held-out episodes, at the training lambda
+            hv = validator(stag_model, [Config.residual_lambda])[Config.residual_lambda]
+            history.setdefault("heldout_hm", []).append(hv["hm"])
+            val_acc = hv["hm"]
+            ho = f" | heldout seen {hv['seen']*100:.2f}% held {hv['held']*100:.2f}% HM {hv['hm']*100:.2f}%"
         improved = val_acc > best_val_acc
         if improved:
             best_val_acc, best_epoch, patience_ctr = val_acc, epoch, 0
@@ -491,8 +615,8 @@ def train_stag_sti(backbone, base_classes, device, epochs, out_path):
               f"loss {history['train_loss'][-1]:.4f} (val {history['val_loss'][-1]:.4f}) "
               f"(cls {history['train_cls'][-1]:.4f}, supcon {history['train_supcon'][-1]:.4f}, "
               f"graph {history['train_graph'][-1]:.4f}, stab {history['train_stab'][-1]:.4f}) "
-              f"| train_query_acc {history['train_acc'][-1]*100:.2f}% | val_query_acc {val_acc*100:.2f}%{flag} "
-              f"| {time.time()-t0:.1f}s", flush=True)
+              f"| train_query_acc {history['train_acc'][-1]*100:.2f}% | val_query_acc {history['val_acc'][-1]*100:.2f}%"
+              f"{ho}{flag} | {time.time()-t0:.1f}s", flush=True)
 
         stop = Config.main_early_stop_patience > 0 and patience_ctr >= Config.main_early_stop_patience
         _save_state(state_path, {
@@ -507,6 +631,18 @@ def train_stag_sti(backbone, base_classes, device, epochs, out_path):
             break
 
     torch.save(stag_model.state_dict(), out_path)
+    if Config.use_heldout:
+        # The checkpoint and lam are both chosen on held-out classes, never on test.
+        best_model = StagStiModel().to(device)
+        best_model.load_state_dict(torch.load(best_path, map_location=device))
+        sweep = validator(best_model, list(Config.heldout_lams))
+        lam_best = max(sweep, key=lambda l: sweep[l]["hm"])
+        for lam, v in sweep.items():
+            print(f"[held-out] lam={lam:g} seen {v['seen']*100:.2f}% held {v['held']*100:.2f}% "
+                  f"HM {v['hm']*100:.2f}%{' <- selected' if lam == lam_best else ''}")
+        with open(os.path.join(os.path.dirname(out_path), "heldout_val.json"), "w") as f:
+            json.dump({"held_classes": held_classes, "best_epoch": best_epoch, "selected_lambda": lam_best,
+                       "sweep": {str(k): v for k, v in sweep.items()}}, f, indent=2)
     print(f"\nSaved final-epoch STAG-STI checkpoint -> {out_path}")
     print(f"Saved best-val-acc STAG-STI checkpoint ({best_val_acc*100:.2f}% @ epoch {best_epoch}) -> {best_path}")
     return stag_model, history
@@ -592,6 +728,12 @@ def main():
                               "Defaults the run to --tag reserve so the baseline is never overwritten.")
     parser.add_argument("--reserve_cutmix", action="store_true",
                          help="With --reserve, keep Phase A's Mixup/CutMix on the real-class branch.")
+    parser.add_argument("--heldout", action="store_true",
+                         help="Held-out Phase B: train on base minus Config.heldout_classes classes, select the "
+                              "checkpoint and fusion lambda on mixed seen/held-out episodes, residual training.")
+    parser.add_argument("--backbone_tag", type=str, default=None,
+                         help="Load the frozen backbone from checkpoints/<ds>/<backbone_tag>/backbone_base.pt "
+                              "(skips Phase A) while writing Phase B under --tag.")
     parser.add_argument("--tag", type=str, default=None,
                          help="Namespace this run under checkpoints/<ds>/<tag>/ (for variant runs).")
     parser.add_argument("--closer_lambda_close", type=float, default=None,
@@ -621,6 +763,7 @@ def main():
         Config.main_early_stop_patience = args.main_patience
 
     spec = Config.apply_dataset(args.dataset)
+    ds_dir = Config.ckpt_dir   # checkpoints/<ds>, before any namespacing
     ablations = Config.apply_ablation(args.ablate)
     if args.closer:
         # namespace the whole run so the CLOSER variant never clobbers baseline
@@ -639,6 +782,11 @@ def main():
     if args.tag:
         Config.ckpt_dir = os.path.join(Config.ckpt_dir, args.tag)
         Config.backbone_ckpt_dir = os.path.join(Config.backbone_ckpt_dir, args.tag)
+    if args.heldout:
+        Config.use_heldout = True
+    if args.backbone_tag:
+        Config.backbone_ckpt_dir = os.path.join(ds_dir, args.backbone_tag)
+        args.skip_backbone_pretrain = True
     if args.seed is not None and args.seed != Config.seed:
         Config.seed = args.seed
         Config.ckpt_dir = os.path.join(Config.ckpt_dir, f"seed{args.seed}")
@@ -663,6 +811,8 @@ def main():
     backbone_ckpt = os.path.join(Config.backbone_ckpt_dir, "backbone_base.pt")
     full_history = {}
 
+    if args.backbone_tag and not os.path.exists(backbone_ckpt):
+        raise FileNotFoundError(f"--backbone_tag: no backbone at {backbone_ckpt}")
     if args.skip_backbone_pretrain and os.path.exists(backbone_ckpt):
         backbone = build_backbone(Config.backbone_type, out_dim=Config.backbone_out_dim).to(device)
         backbone.load_state_dict(torch.load(backbone_ckpt, map_location=device))
