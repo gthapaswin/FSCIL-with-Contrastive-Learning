@@ -85,3 +85,18 @@ the test set. Test (full-base, novel bias), final acc / A_B / A_N / HM (%):
   epoch 1): Phase B fits base episodes almost immediately.
 - With residual training, the STAG-STI branch alone (lam=0) is not a usable
   classifier; it only works as a residual.
+
+## Recipe on CIFAR-100 (`scripts/run_recipe.sh cifar100 100`)
+
+Reserve + CutMix backbone (100 ep), held-out Phase B (best epoch 1), full-base
+fused eval. Headline lam=0.5 is fixed in advance (= the training lambda); the
+held-out validation also selected 0.5. Final acc / A_B / A_N / HM (%):
+
+| lam | 0.25 | **0.5 (headline)** | 0.75 | 1 (NCM, same backbone) |
+|---|---|---|---|---|
+| CIFAR-100 | 52.41 / 60.42 / 40.40 / 48.42 | **56.30 / 70.37 / 35.20 / 46.93** | 57.01 / 73.45 / 32.35 / 44.92 | 57.26 / 74.72 / 31.08 / 43.89 |
+
+- +3.0 HM and +4.1 A_N over NCM on the same backbone, at -1.0 final accuracy
+  (miniImageNet: +2.9 HM at -0.8 final).
+- vs the Review II result (final 49.53, HM 31.87): +6.8 final, +15.1 HM.
+- The standard (non-held-out) Phase B on this backbone collapses (HM 15.01).
