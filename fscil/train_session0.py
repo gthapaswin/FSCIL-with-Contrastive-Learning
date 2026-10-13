@@ -173,18 +173,25 @@ def reserve_loss(model, imgs, labels, nb):
     perm = torch.randperm(B, device=imgs.device)
     diff = labels != labels[perm]
     mixed = (lam * imgs + (1 - lam) * imgs[perm])[diff]
-    logits_all, _ = model(torch.cat([imgs, mixed]))   # one pass: shared BN stats
+    # --reserve_cutmix: the real-class branch also gets Phase A's Mixup/CutMix
+    # regularization (without it the reserve backbone hit 99% train accuracy)
+    if Config.reserve_cutmix:
+        real, la, lb, lc = mixup_cutmix_batch(imgs.clone(), labels, nb, imgs.device)
+    else:
+        real, la, lb, lc = imgs, labels, labels, 1.0
+    logits_all, _ = model(torch.cat([real, mixed]))   # one pass: shared BN stats
     logits, logits_m = logits_all[:B], logits_all[B:]
 
-    l_cls = F.cross_entropy(logits, labels, label_smoothing=Config.label_smoothing)
-    masked = logits.scatter(1, labels[:, None], -1e4)
+    l_cls = (lc * F.cross_entropy(logits, la, label_smoothing=Config.label_smoothing)
+             + (1 - lc) * F.cross_entropy(logits, lb, label_smoothing=Config.label_smoothing))
+    masked = logits.scatter(1, la[:, None], -1e4).scatter(1, lb[:, None], -1e4)
     slot = masked[:, nb:].argmax(1) + nb
     l_slot = F.cross_entropy(masked, slot)
     loss = l_cls + Config.reserve_lambda_slot * l_slot
     if logits_m.size(0) > 0:
         vslot = logits_m[:, nb:].argmax(1) + nb
         loss = loss + Config.reserve_lambda_virtual * F.cross_entropy(logits_m, vslot)
-    return loss, logits[:, :nb]
+    return loss, logits[:, :nb], (la if lc >= 0.5 else lb)
 
 
 # ---------------------------------------------------------------------------
@@ -214,9 +221,9 @@ def pretrain_backbone(base_classes, device, epochs, out_path):
 
     print(f"\n=== Phase A: backbone pretraining on {len(base_classes)} base classes for {epochs} epochs ===")
     if Config.use_reserve:
-        # reserve mode replaces Mixup/CutMix: its own class mixtures are the virtual classes
         print(f"Forward-compatible reserve: {nv} virtual prototypes (scale {Config.reserve_scale}, "
-              f"lambda_slot {Config.reserve_lambda_slot}, lambda_virtual {Config.reserve_lambda_virtual})")
+              f"lambda_slot {Config.reserve_lambda_slot}, lambda_virtual {Config.reserve_lambda_virtual}, "
+              f"Mixup/CutMix on real classes: {Config.reserve_cutmix})")
     elif Config.use_mixup_cutmix:
         print("Mixup/CutMix enabled (randomly applied per batch)")
 
@@ -248,8 +255,7 @@ def pretrain_backbone(base_classes, device, epochs, out_path):
         for imgs, labels in train_loader:
             imgs, labels = imgs.to(device), labels.to(device)
             if Config.use_reserve:
-                loss, logits = reserve_loss(model, imgs, labels, nb)
-                acc_labels = labels
+                loss, logits, acc_labels = reserve_loss(model, imgs, labels, nb)
             elif Config.use_mixup_cutmix:
                 imgs, labels_a, labels_b, lam = mixup_cutmix_batch(imgs, labels, len(base_classes), device)
                 logits, _ = model(imgs)
@@ -584,6 +590,8 @@ def main():
     parser.add_argument("--reserve", action="store_true",
                          help="Forward-compatible reserve in Phase A (FACT-style virtual prototypes). "
                               "Defaults the run to --tag reserve so the baseline is never overwritten.")
+    parser.add_argument("--reserve_cutmix", action="store_true",
+                         help="With --reserve, keep Phase A's Mixup/CutMix on the real-class branch.")
     parser.add_argument("--tag", type=str, default=None,
                          help="Namespace this run under checkpoints/<ds>/<tag>/ (for variant runs).")
     parser.add_argument("--closer_lambda_close", type=float, default=None,
@@ -626,6 +634,7 @@ def main():
         Config.backbone_ckpt_dir = os.path.join(Config.backbone_ckpt_dir, sub)
     if args.reserve:
         Config.use_reserve = True
+        Config.reserve_cutmix = args.reserve_cutmix
         args.tag = args.tag or "reserve"
     if args.tag:
         Config.ckpt_dir = os.path.join(Config.ckpt_dir, args.tag)

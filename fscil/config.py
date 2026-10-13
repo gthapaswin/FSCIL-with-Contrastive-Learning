@@ -130,6 +130,7 @@ class Config:
     reserve_lambda_slot = 0.1     # base sample -> nearest virtual (gt masked)
     reserve_lambda_virtual = 0.1  # class mixture -> nearest virtual
     reserve_mix_alpha = 2.0       # Beta(a,a); a>1 keeps mixtures near 50/50
+    reserve_cutmix = False        # also Mixup/CutMix the real-class branch (--reserve_cutmix)
 
     # ---------------- Ablations (slide-17 component study) ----------------
     # Set via Config.apply_ablation([...]). Each disables one STAG-STI piece:
