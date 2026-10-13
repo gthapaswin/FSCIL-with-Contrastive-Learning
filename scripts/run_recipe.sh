@@ -32,6 +32,7 @@ scripts/run_longbb.sh "$DS" "$BB" "$EP" --reserve --reserve_cutmix "${EXTRA[@]}"
       --backbone_ckpt "$BBDIR/backbone_base.pt" --stag_ckpt "$HODIR/stag_sti_session0_best.pt" \
       --full_base --fuse 0 0.25 0.5 0.75 1 || exit 1
 
+RUN="$HO"; [ -n "$SUB" ] && RUN="$HO, seed$SEED"
 "$PY" scripts/commit_result.py --ckpt-dir "$HODIR" --results-file fullbase/fuse0.5/incremental_results.json \
-    --label "$DS recipe, fused lam=0.5 ($HO${SUB:+, ${SUB#/}})" || true
+    --label "$DS recipe, fused lam=0.5 ($RUN)" || true
 echo "[recipe] $(date) $DS ${EXTRA[*]} DONE"
