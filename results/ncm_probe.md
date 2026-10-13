@@ -18,8 +18,30 @@ checkpoint per row pair. All numbers are final-session accuracy (%).
 | CUB-200 | baseline | NCM | 75.31 | 41.40 | **53.43** | **58.16** |
 | CUB-200 | baseline | STAG-STI | 68.99 | 30.85 | 42.64 | 49.71 |
 
+Caveat: the STAG-STI rows above use a 5-shot base draw; the fair base-side
+comparison is the full-base run (CIFAR HM 29.77, mini 23.58, CUB 40.01), which
+widens the gap on CIFAR/CUB. The probe adds no novel-logit bias, so its A_N is
+lower than the evaluator's (see the fusion table below, where both get it).
+
 Reading: STAG-STI beats NCM on HM only on miniImageNet; on CIFAR-100 and
 CUB-200 the raw-feature NCM is better on every metric. The head currently
 loses information that the 512-d backbone features carry (most on CUB).
 The reserve backbone transfers worst (A_N 6.8): with Mixup/CutMix off it
 reached 99% train accuracy.
+
+## Residual fusion (`eval_incremental --full_base --fuse ...`)
+
+score = inv_tau * ((1-lam) cos(z, H) + lam cos(f, R)) + novel bias, where
+z/H are the STAG-STI query embedding / memory and f/R the raw backbone feature /
+class mean. lam=0 is STAG-STI alone, lam=1 plain NCM. Final accuracy / HM (%):
+
+| Dataset | lam=0 | 0.25 | 0.5 | 0.75 | 1 |
+|---|---|---|---|---|---|
+| CIFAR-100 | 50.44 / 30.78 | 51.57 / 34.35 | 52.37 / 37.91 | **52.86** / 40.49 | 52.58 / **42.26** |
+| miniImageNet | 41.40 / 23.80 | 42.62 / 25.38 | 43.20 / 26.87 | **43.50** / 28.05 | 43.40 / **29.19** |
+| CUB-200 | 50.10 / 42.20 | 52.52 / 46.66 | 54.47 / 50.27 | **55.25 / 52.25** | 53.52 / 51.41 |
+
+lam=0.75 gives the best final accuracy on all three datasets (STAG-STI adds
+information NCM lacks) and +9.7 / +4.3 / +10.1 HM over STAG-STI alone. On HM,
+pure NCM is still best on CIFAR and mini. lam was swept on the test set here;
+a paper must fix it on held-out base-class validation episodes.

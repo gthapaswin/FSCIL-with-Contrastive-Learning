@@ -59,6 +59,12 @@ from fscil.train_session0 import get_device, set_seed
 import torchvision
 
 
+def raw_prototypes(f):
+    """Residual branch: class mean of the L2-normalized raw backbone features of
+    the clean (identity-view) support images. f: (way, n, 512) -> (way, 512)."""
+    return F.normalize(F.normalize(f, dim=-1).mean(1), dim=-1)
+
+
 def _prototypes_one_group(backbone, stag_model, full_train_ds, per_class_indices, device, M):
     """Build prototypes for a small group of classes in a single graph."""
     per_class_views = []
@@ -80,7 +86,7 @@ def _prototypes_one_group(backbone, stag_model, full_train_ds, per_class_indices
     with torch.no_grad():
         _, h_enriched, A_soft = stag_model.encode_prototypes(node_feats, class_ids, view_ids)
         P_new, A_tilde_new = stag_model.build_prototypes(h_enriched, A_soft, class_ids, way)
-    return P_new, A_tilde_new
+    return P_new, A_tilde_new, raw_prototypes(feats[:, :, 0])
 
 
 def _prototypes_from_indices(backbone, stag_model, full_train_ds, per_class_indices, device, M):
@@ -99,14 +105,14 @@ def _prototypes_from_indices(backbone, stag_model, full_train_ds, per_class_indi
     chunk = max(1, int(getattr(Config, "episode_way", 15)))
     if n <= chunk:
         return _prototypes_one_group(backbone, stag_model, full_train_ds, per_class_indices, device, M)
-    P_parts = []
+    P_parts, R_parts = [], []
     for start in range(0, n, chunk):
-        P_g, _ = _prototypes_one_group(backbone, stag_model, full_train_ds,
-                                       per_class_indices[start:start + chunk], device, M)
-        P_parts.append(P_g)
+        P_g, _, R_g = _prototypes_one_group(backbone, stag_model, full_train_ds,
+                                            per_class_indices[start:start + chunk], device, M)
+        P_parts.append(P_g); R_parts.append(R_g)
     P_new = torch.cat(P_parts, dim=0)                       # (n, d')
     A_tilde_new = torch.zeros(n, n, device=device)          # unused for new-class writes
-    return P_new, A_tilde_new
+    return P_new, A_tilde_new, torch.cat(R_parts, dim=0)
 
 
 def build_new_class_prototypes(backbone, stag_model, full_train_ds, class_list, device, shot, M, rng):
@@ -138,7 +144,7 @@ def build_base_prototypes(backbone, stag_model, full_train_ds, class_list, devic
     (standard FSCIL: base classes use abundant data; only novel classes are
     5-shot). Feature extraction is batched per class; the graph runs in
     training-scale class chunks. Returns P (C, d'), A_tilde (C, C) placeholder."""
-    w_list = []
+    w_list, r_list = [], []
     for c in class_list:
         idxs = full_train_ds.indices_for_class(c)
         if len(idxs) > cap:
@@ -149,7 +155,9 @@ def build_base_prototypes(backbone, stag_model, full_train_ds, class_list, devic
         feats = []
         for s in range(0, flat.shape[0], batch):
             feats.append(backbone(flat[s:s + batch].to(device)))
-        w_list.append(torch.cat(feats, 0).view(n, M, -1).mean(0))          # (M, d) shot-averaged
+        fc = torch.cat(feats, 0).view(n, M, -1)
+        w_list.append(fc.mean(0))                                            # (M, d) shot-averaged
+        r_list.append(raw_prototypes(fc[None, :, 0])[0])
     w_cm_all = torch.stack(w_list, 0)                                        # (C, M, d)
 
     chunk = max(1, int(getattr(Config, "episode_way", 15)))
@@ -163,7 +171,7 @@ def build_base_prototypes(backbone, stag_model, full_train_ds, class_list, devic
         Pg, _ = stag_model.build_prototypes(h_en, A_soft, cid, Cg)
         P_parts.append(Pg)
     P = torch.cat(P_parts, 0)
-    return P, torch.zeros(P.shape[0], P.shape[0], device=device)
+    return P, torch.zeros(P.shape[0], P.shape[0], device=device), torch.stack(r_list, 0)
 
 
 def write_new_memory_rows(stag_model, P_new, A_tilde_new, session_idx, device):
@@ -181,7 +189,7 @@ def write_new_memory_rows(stag_model, P_new, A_tilde_new, session_idx, device):
 @torch.no_grad()
 def evaluate_cumulative(backbone, stag_model, full_test_ds, class_order, H, device,
                          novel_mask=None, base_set=None, batch_size=256,
-                         transductive=False, alpha=0.5, td_iters=3):
+                         transductive=False, alpha=0.5, td_iters=3, R=None, fuse=None):
     """Accuracy over the test set restricted to every class in class_order,
     classified against the current persistent memory H (rows aligned to
     class_order).
@@ -198,6 +206,11 @@ def evaluate_cumulative(backbone, stag_model, full_test_ds, class_order, H, devi
     it (alpha weights the memory row), iterated td_iters times. This uses the
     whole test set jointly (a stronger protocol than inductive per-query eval)
     and must be reported as transductive.
+
+    fuse: list of residual weights lam. Each gives one result, scored by
+    inv_tau * ((1-lam) cos(z, H) + lam cos(f, R)): f / R are the raw backbone
+    query features / class means, so lam=0 is STAG-STI alone and lam=1 is plain
+    nearest-class-mean. Returns a list aligned with fuse instead of one dict.
     """
     import torch.nn.functional as F
     pos_map = {c: i for i, c in enumerate(class_order)}
@@ -206,7 +219,7 @@ def evaluate_cumulative(backbone, stag_model, full_test_ds, class_order, H, devi
         indices.extend(full_test_ds.indices_for_class(c))
 
     # one feature pass -> collect all query embeddings
-    z_all, true_all, base_all = [], [], []
+    z_all, f_all, true_all, base_all = [], [], [], []
     for start in range(0, len(indices), batch_size):
         batch_idx = indices[start:start + batch_size]
         imgs, tp, ib = [], [], []
@@ -216,13 +229,19 @@ def evaluate_cumulative(backbone, stag_model, full_test_ds, class_order, H, devi
             tp.append(pos_map[raw_label])
             ib.append(base_set is None or raw_label in base_set)
         imgs = torch.stack(imgs, dim=0).to(device)
-        z_all.append(stag_model.projection(backbone(imgs)))
+        f = backbone(imgs)
+        z_all.append(stag_model.projection(f)); f_all.append(F.normalize(f, dim=-1))
         true_all.extend(tp); base_all.extend(ib)
     z = torch.cat(z_all, dim=0)
+    fq = torch.cat(f_all, dim=0)
     true_pos = torch.tensor(true_all, device=device)
     is_base = torch.tensor(base_all, device=device)
     bias = (novel_mask.to(device).float() * Config.novel_logit_bias
             if (novel_mask is not None and Config.novel_logit_bias != 0.0) else 0.0)
+
+    if fuse is not None:
+        return [_fused_metrics(stag_model, z, fq, H, R, lam, bias, transductive, alpha, td_iters,
+                               true_pos, is_base) for lam in fuse]
 
     if not transductive:
         logits = stag_model.classify_query(z, H) + bias
@@ -240,6 +259,29 @@ def evaluate_cumulative(backbone, stag_model, full_test_ds, class_order, H, devi
             refined = newp
         logits = inv_tau * (zn @ refined.T) + bias
 
+    return _metrics(logits, true_pos, is_base)
+
+
+def _fused_metrics(stag_model, z, fq, H, R, lam, bias, transductive, alpha, td_iters, true_pos, is_base):
+    """Residual-fused scoring for one lam (see evaluate_cumulative). Under
+    transductive, both prototype sets are rectified with the fused pseudo-labels."""
+    inv_tau = stag_model.classifier.log_inv_tau.exp()
+    zn, Hn, Rn = F.normalize(z, dim=-1), F.normalize(H, dim=-1), F.normalize(R, dim=-1)
+    score = lambda Hk, Rk: inv_tau * ((1 - lam) * (zn @ Hk.T) + lam * (fq @ Rk.T)) + bias
+    Hr, Rr = Hn, Rn
+    for _ in range(td_iters if transductive else 0):
+        pseudo = score(Hr, Rr).argmax(1)
+        Hr2, Rr2 = Hr.clone(), Rr.clone()
+        for k in range(Hn.shape[0]):
+            m = pseudo == k
+            if m.any():
+                Hr2[k] = F.normalize(alpha * Hn[k] + (1 - alpha) * zn[m].mean(0), dim=-1)
+                Rr2[k] = F.normalize(alpha * Rn[k] + (1 - alpha) * fq[m].mean(0), dim=-1)
+        Hr, Rr = Hr2, Rr2
+    return _metrics(score(Hr, Rr), true_pos, is_base)
+
+
+def _metrics(logits, true_pos, is_base):
     preds = logits.argmax(dim=1)
     hit = (preds == true_pos)
     bt = is_base.sum().item(); nt = (~is_base).sum().item()
@@ -276,6 +318,9 @@ def main():
                          help="Must match the value used at training time (for the closer_lc<val>/ namespace).")
     parser.add_argument("--seed", type=int, default=None,
                          help="Must match the training --seed (reads/writes the seed<N>/ namespace).")
+    parser.add_argument("--fuse", type=float, nargs="+", default=None,
+                         help="Residual weights lam: score = (1-lam) STAG-STI cosine + lam raw-feature "
+                              "NCM cosine. One run evaluates every lam; each writes to fuse<lam>/.")
     parser.add_argument("--backbone_ckpt", type=str, default=None,
                          help="Path to backbone checkpoint. Defaults to checkpoints/backbone_base.pt "
                               "(final-epoch). Pass checkpoints/backbone_base_best.pt to use the best-val "
@@ -338,8 +383,10 @@ def main():
     rng = random.Random(Config.seed + 1000)
 
     H = torch.zeros(0, Config.proj_dim, device=device)
+    R = torch.zeros(0, Config.backbone_out_dim, device=device)
     class_order = []
-    results = []
+    lams = args.fuse if args.fuse is not None else [None]
+    runs = {lam: [] for lam in lams}
 
     print(f"\n=== Incremental FSCIL evaluation: {len(all_sessions)} sessions "
           f"(session 0 = {len(base_classes)} base classes, sessions 1-{spec.num_incremental_sessions} "
@@ -352,44 +399,54 @@ def main():
         # reproducibility; the base session builds its prototypes from a random
         # k-shot draw of the abundant base training data.
         if session_idx == 0 and args.full_base:
-            P_new, A_tilde_new = build_base_prototypes(
+            P_new, A_tilde_new, R_new = build_base_prototypes(
                 backbone, stag_model, full_train_ds, class_list, device,
                 M=Config.num_views, cap=Config.base_proto_cap, rng=rng,
             )
         elif use_official and session_idx >= 1:
             refs = official_session_refs(spec, plan, session_idx)
-            P_new, A_tilde_new = build_new_class_prototypes_official(
+            P_new, A_tilde_new, R_new = build_new_class_prototypes_official(
                 backbone, stag_model, full_train_ds, refs, class_list, device, M=Config.num_views,
             )
         else:
-            P_new, A_tilde_new = build_new_class_prototypes(
+            P_new, A_tilde_new, R_new = build_new_class_prototypes(
                 backbone, stag_model, full_train_ds, class_list, device, shot=shot,
                 M=Config.num_views, rng=rng,
             )
         H_new_rows = write_new_memory_rows(stag_model, P_new, A_tilde_new, session_idx, device)
 
         H = torch.cat([H, H_new_rows], dim=0)
+        R = torch.cat([R, R_new], dim=0)
         class_order.extend(class_list)
 
         novel_mask = torch.tensor([c not in base_set for c in class_order], dtype=torch.bool)
-        m = evaluate_cumulative(backbone, stag_model, full_test_ds, class_order, H, device,
-                                novel_mask=novel_mask, base_set=base_set,
-                                transductive=args.transductive)
-        acc, acc_base, acc_novel = m["acc"], m["acc_base"], m["acc_novel"]
-        hm = (2 * acc_base * acc_novel / (acc_base + acc_novel)
-              if (acc_base == acc_base and acc_novel == acc_novel and (acc_base + acc_novel) > 0)
-              else float("nan"))
-        results.append({
-            "session": session_idx, "num_classes_seen": len(class_order),
-            "accuracy": acc, "acc_base": acc_base, "acc_novel": acc_novel, "harmonic_mean": hm,
-        })
+        ms = evaluate_cumulative(backbone, stag_model, full_test_ds, class_order, H, device,
+                                 novel_mask=novel_mask, base_set=base_set,
+                                 transductive=args.transductive, R=R, fuse=args.fuse)
+        if args.fuse is None:
+            ms = [ms]
+        for lam, m in zip(lams, ms):
+            acc, acc_base, acc_novel = m["acc"], m["acc_base"], m["acc_novel"]
+            hm = (2 * acc_base * acc_novel / (acc_base + acc_novel)
+                  if (acc_base == acc_base and acc_novel == acc_novel and (acc_base + acc_novel) > 0)
+                  else float("nan"))
+            runs[lam].append({
+                "session": session_idx, "num_classes_seen": len(class_order),
+                "accuracy": acc, "acc_base": acc_base, "acc_novel": acc_novel, "harmonic_mean": hm,
+            })
 
-        label = "Session 0 (base)" if session_idx == 0 else f"Session {session_idx} (+{len(class_list)} novel)"
-        extra = "" if session_idx == 0 else (f" | A_B={acc_base*100:.2f}% A_N={acc_novel*100:.2f}% "
-                                             f"HM={hm*100:.2f}%")
-        print(f"[{label}] classes_seen={len(class_order):3d} | cumulative_test_acc={acc*100:.2f}%{extra} "
-              f"| {time.time()-t0:.1f}s")
+            label = "Session 0 (base)" if session_idx == 0 else f"Session {session_idx} (+{len(class_list)} novel)"
+            label += "" if lam is None else f" lam={lam:g}"
+            extra = "" if session_idx == 0 else (f" | A_B={acc_base*100:.2f}% A_N={acc_novel*100:.2f}% "
+                                                 f"HM={hm*100:.2f}%")
+            print(f"[{label}] classes_seen={len(class_order):3d} | cumulative_test_acc={acc*100:.2f}%{extra} "
+                  f"| {time.time()-t0:.1f}s")
 
+    for lam in lams:
+        save_summary(runs[lam], spec, args, lam)
+
+
+def save_summary(results, spec, args, lam=None):
     acc0 = results[0]["accuracy"]
     accT = results[-1]["accuracy"]
     pd = (acc0 - accT) * 100
@@ -398,7 +455,7 @@ def main():
     aN = results[-1]["acc_novel"] * 100
     hmT = results[-1]["harmonic_mean"] * 100
 
-    print("\n=== Summary (standard FSCIL metrics) ===")
+    print("\n=== Summary (standard FSCIL metrics)" + ("" if lam is None else f" lam={lam:g}") + " ===")
     print(f"Session 0 accuracy (base only):        {acc0*100:.2f}%")
     print(f"Final session accuracy (all classes):  {accT*100:.2f}%")
     print(f"Performance Drop (PD = Acc0 - AccT):     {pd:.2f} points")
@@ -410,6 +467,8 @@ def main():
     out_dir = Config.ckpt_dir
     if args.full_base:
         out_dir = os.path.join(out_dir, "fullbase")
+    if lam is not None:
+        out_dir = os.path.join(out_dir, f"fuse{lam:g}")
     if args.transductive:
         out_dir = os.path.join(out_dir, "transductive")
     os.makedirs(out_dir, exist_ok=True)
@@ -417,7 +476,7 @@ def main():
     with open(out_path, "w") as f:
         json.dump({"dataset": spec.key, "results": results, "PD": pd, "avg_accuracy": avg_acc,
                    "A_B": aB, "A_N": aN, "harmonic_mean": hmT}, f, indent=2)
-    print(f"\nSaved results -> {out_path}")
+    print(f"Saved results -> {out_path}")
 
 
 if __name__ == "__main__":
