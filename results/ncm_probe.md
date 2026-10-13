@@ -121,3 +121,27 @@ fused eval. Held-out validation selected lam=0.75. Final acc / A_B / A_N / HM (%
 - Standard Phase B on this backbone: final 50.24, HM 42.95.
 - lam=0 is degenerate (final 0.43): as on mini, the residual-trained branch is
   not a standalone classifier.
+
+## Calibration control: the residual head is equivalent to NCM with a larger novel bias
+
+NCM (lam=1) on the same recipe backbones with the novel-logit bias swept
+(`eval_incremental --fuse 1 0.5 --novel_bias b`). Final / A_B / A_N / HM (%):
+
+| | ours (lam=0.5, bias 0.5) | NCM, bias 1.0 | NCM, bias 0.5 | NCM, bias 2.0 |
+|---|---|---|---|---|
+| CIFAR-100 | 56.30 / 70.37 / 35.20 / 46.93 | 56.32 / 70.33 / 35.30 / 47.01 | 57.26 / 74.72 / 31.08 / 43.89 | 52.41 / 60.40 / 40.42 / 48.43 |
+| miniImageNet | 46.77 / 61.38 / 24.85 / 35.38 | 46.84 / 61.68 / 24.57 / 35.15 | 47.60 / 64.88 / 21.67 / 32.49 | 43.86 / 54.47 / 27.95 / 36.94 |
+| CUB-200 | 49.28 / 54.40 / 44.27 / 48.81 | 49.43 / 54.68 / 44.30 / 48.95 | 55.51 / 68.72 / 42.59 / 52.59 | 32.29 / 19.69 / 44.61 / 27.32 |
+
+- **The "+3 HM over NCM" is a calibration artefact.** After held-out residual
+  training the head's class scores are nearly constant across classes (lam=0
+  alone is at chance), so inv_tau((1-lam) s_head + lam s_ncm) + b ranks
+  classes like NCM with bias b/lam. lam=0.5 with bias 0.5 = NCM with bias 1.0
+  on all three datasets (within 0.25 HM); the lam sweep is a bias sweep.
+- Same with the bias: lam=0.5 nb=1 matches NCM nb=2, etc. (CIFAR 48.42 vs 48.43).
+- Split fusion (base on NCM, head only on novel columns, scores per-query
+  aligned) confirms it: on CUB held-out validation the novel columns lose
+  (held acc 44% at lam_novel=0.5 vs 83% for NCM) -- the head carries no
+  novel-class information on its own.
+- Best NCM bias differs per dataset (CUB 0-0.5, CIFAR/mini ~2); these numbers
+  pick it on test and are only diagnostic.

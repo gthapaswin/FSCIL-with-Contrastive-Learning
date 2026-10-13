@@ -54,7 +54,7 @@ from fscil.data import build_dataset, base_transforms, get_official_split, make_
 from fscil.datasets import official_session_refs
 from fscil.backbone import build_backbone
 from fscil.pipeline import StagStiModel
-from fscil.train_session0 import get_device, set_seed
+from fscil.train_session0 import get_device, set_seed, split_lams, align_scores
 
 import torchvision
 
@@ -189,7 +189,7 @@ def write_new_memory_rows(stag_model, P_new, A_tilde_new, session_idx, device):
 @torch.no_grad()
 def evaluate_cumulative(backbone, stag_model, full_test_ds, class_order, H, device,
                          novel_mask=None, base_set=None, batch_size=256,
-                         transductive=False, alpha=0.5, td_iters=3, R=None, fuse=None):
+                         transductive=False, alpha=0.5, td_iters=3, R=None, fuse=None, fuse_base=None):
     """Accuracy over the test set restricted to every class in class_order,
     classified against the current persistent memory H (rows aligned to
     class_order).
@@ -211,6 +211,8 @@ def evaluate_cumulative(backbone, stag_model, full_test_ds, class_order, H, devi
     inv_tau * ((1-lam) cos(z, H) + lam cos(f, R)): f / R are the raw backbone
     query features / class means, so lam=0 is STAG-STI alone and lam=1 is plain
     nearest-class-mean. Returns a list aligned with fuse instead of one dict.
+    fuse_base: split fusion -- base-class columns use lam=fuse_base and each
+    fuse value applies to the novel columns only.
     """
     import torch.nn.functional as F
     pos_map = {c: i for i, c in enumerate(class_order)}
@@ -240,8 +242,11 @@ def evaluate_cumulative(backbone, stag_model, full_test_ds, class_order, H, devi
             if (novel_mask is not None and Config.novel_logit_bias != 0.0) else 0.0)
 
     if fuse is not None:
+        novel_cols = (novel_mask.to(device) if novel_mask is not None
+                      else torch.zeros(H.shape[0], dtype=torch.bool, device=device))
+        lams = [lam if fuse_base is None else split_lams((fuse_base, lam), novel_cols) for lam in fuse]
         return [_fused_metrics(stag_model, z, fq, H, R, lam, bias, transductive, alpha, td_iters,
-                               true_pos, is_base) for lam in fuse]
+                               true_pos, is_base) for lam in lams]
 
     if not transductive:
         logits = stag_model.classify_query(z, H) + bias
@@ -267,7 +272,11 @@ def _fused_metrics(stag_model, z, fq, H, R, lam, bias, transductive, alpha, td_i
     transductive, both prototype sets are rectified with the fused pseudo-labels."""
     inv_tau = stag_model.classifier.log_inv_tau.exp()
     zn, Hn, Rn = F.normalize(z, dim=-1), F.normalize(H, dim=-1), F.normalize(R, dim=-1)
-    score = lambda Hk, Rk: inv_tau * ((1 - lam) * (zn @ Hk.T) + lam * (fq @ Rk.T)) + bias
+    def score(Hk, Rk):
+        s_stag, s_raw = zn @ Hk.T, fq @ Rk.T
+        if torch.is_tensor(lam):   # split fusion: put the head on the NCM scale
+            s_stag = align_scores(s_stag, s_raw)
+        return inv_tau * ((1 - lam) * s_stag + lam * s_raw) + bias
     Hr, Rr = Hn, Rn
     for _ in range(td_iters if transductive else 0):
         pseudo = score(Hr, Rr).argmax(1)
@@ -324,6 +333,11 @@ def main():
     parser.add_argument("--fuse", type=float, nargs="+", default=None,
                          help="Residual weights lam: score = (1-lam) STAG-STI cosine + lam raw-feature "
                               "NCM cosine. One run evaluates every lam; each writes to fuse<lam>/.")
+    parser.add_argument("--novel_bias", type=float, default=None,
+                         help="Override Config.novel_logit_bias (writes to a nb<val>/ subdir).")
+    parser.add_argument("--fuse_base", type=float, default=None,
+                         help="Split fusion: base-class columns use this lam, the --fuse values apply to "
+                              "novel classes only. Writes to fuse<lam>_base<fuse_base>/.")
     parser.add_argument("--backbone_ckpt", type=str, default=None,
                          help="Path to backbone checkpoint. Defaults to checkpoints/backbone_base.pt "
                               "(final-epoch). Pass checkpoints/backbone_base_best.pt to use the best-val "
@@ -333,6 +347,8 @@ def main():
                               "(final-epoch). Pass checkpoints/stag_sti_session0_best.pt to use the "
                               "best-val checkpoint instead.")
     args = parser.parse_args()
+    if args.novel_bias is not None:
+        Config.novel_logit_bias = args.novel_bias
 
     spec = Config.apply_dataset(args.dataset)
     if args.backbone == "resnet20":
@@ -427,7 +443,8 @@ def main():
         novel_mask = torch.tensor([c not in base_set for c in class_order], dtype=torch.bool)
         ms = evaluate_cumulative(backbone, stag_model, full_test_ds, class_order, H, device,
                                  novel_mask=novel_mask, base_set=base_set,
-                                 transductive=args.transductive, R=R, fuse=args.fuse)
+                                 transductive=args.transductive, R=R, fuse=args.fuse,
+                                 fuse_base=args.fuse_base)
         if args.fuse is None:
             ms = [ms]
         for lam, m in zip(lams, ms):
@@ -473,7 +490,10 @@ def save_summary(results, spec, args, lam=None):
     if args.full_base:
         out_dir = os.path.join(out_dir, "fullbase")
     if lam is not None:
-        out_dir = os.path.join(out_dir, f"fuse{lam:g}")
+        out_dir = os.path.join(out_dir, f"fuse{lam:g}" + ("" if args.fuse_base is None
+                                                          else f"_base{args.fuse_base:g}"))
+    if args.novel_bias is not None:
+        out_dir = os.path.join(out_dir, f"nb{args.novel_bias:g}")
     if args.transductive:
         out_dir = os.path.join(out_dir, "transductive")
     os.makedirs(out_dir, exist_ok=True)

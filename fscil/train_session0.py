@@ -425,12 +425,36 @@ def raw_class_means(f):
 
 def fused_logits(stag_model, z_q, H, f_q, R, lam, bias=0.0):
     """inv_tau * ((1-lam) cos(z_q, H) + lam cos(f_q, R)) + bias. lam=0 is
-    STAG-STI alone, lam=1 plain nearest-class-mean on raw features. Must match
+    STAG-STI alone, lam=1 plain nearest-class-mean on raw features. lam may be
+    a per-class (C,) tensor (see split_lams); the head scores are then mapped
+    onto the NCM scale first (align_scores). Must match
     eval_incremental._fused_metrics."""
     inv_tau = stag_model.classifier.log_inv_tau.exp()
     s_stag = F.normalize(z_q, dim=-1) @ F.normalize(H, dim=-1).T
     s_raw = F.normalize(f_q, dim=-1) @ F.normalize(R, dim=-1).T
+    if torch.is_tensor(lam):
+        s_stag = align_scores(s_stag, s_raw)
     return inv_tau * ((1 - lam) * s_stag + lam * s_raw) + bias
+
+
+def align_scores(s_stag, s_raw):
+    """Per query, affinely map the head's class scores onto the mean/std of the
+    raw NCM scores, so columns scored by different lams are comparable."""
+    mu_s, sd_s = s_stag.mean(1, keepdim=True), s_stag.std(1, keepdim=True) + 1e-6
+    mu_r, sd_r = s_raw.mean(1, keepdim=True), s_raw.std(1, keepdim=True)
+    return (s_stag - mu_s) / sd_s * sd_r + mu_r
+
+
+def split_lams(lam, novel_mask):
+    """Split fusion: lam = (lam_base, lam_novel) gives each class column its
+    own weight -- abundant-shot base prototypes stay on raw-feature NCM
+    (lam_base, typically 1) while the residual head only rescores the few-shot
+    novel ones. A plain float is returned unchanged."""
+    if not isinstance(lam, tuple):
+        return lam
+    lb, ln = lam
+    return torch.where(novel_mask, torch.tensor(float(ln), device=novel_mask.device),
+                       torch.tensor(float(lb), device=novel_mask.device))
 
 
 def split_heldout(base_classes):
@@ -514,8 +538,10 @@ class HeldoutValidator:
         for draw in self.held_draws:
             H_h, R_h = self._prototypes(stag_model, draw, Config.heldout_val_held_way)
             H, R = torch.cat([H_s, H_h]), torch.cat([R_s, R_h])
+            novel = torch.arange(len(H), device=self.device) >= self.n_seen
             for lam in lams:
-                hit = (fused_logits(stag_model, z_q, H, self.f_q, R, lam, self.bias).argmax(1) == self.y).float()
+                lv = split_lams(lam, novel)
+                hit = (fused_logits(stag_model, z_q, H, self.f_q, R, lv, self.bias).argmax(1) == self.y).float()
                 acc[lam].append((hit[is_seen].mean().item(), hit[~is_seen].mean().item()))
         out = {}
         for lam, v in acc.items():
