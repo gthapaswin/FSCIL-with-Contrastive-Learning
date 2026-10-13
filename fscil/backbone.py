@@ -66,10 +66,53 @@ class StandardResNet18(nn.Module):
         self.eval()
 
 
+class _BasicBlock(nn.Module):
+    def __init__(self, cin, cout, stride):
+        super().__init__()
+        self.conv1 = nn.Conv2d(cin, cout, 3, stride, 1, bias=False)
+        self.bn1 = nn.BatchNorm2d(cout)
+        self.conv2 = nn.Conv2d(cout, cout, 3, 1, 1, bias=False)
+        self.bn2 = nn.BatchNorm2d(cout)
+        self.short = (nn.Sequential() if stride == 1 and cin == cout else
+                      nn.Sequential(nn.Conv2d(cin, cout, 1, stride, bias=False), nn.BatchNorm2d(cout)))
+
+    def forward(self, x):
+        out = torch.relu(self.bn1(self.conv1(x)))
+        return torch.relu(self.bn2(self.conv2(out)) + self.short(x))
+
+
+class CifarResNet20(nn.Module):
+    """ResNet-20 (He et al. 2016, 3x3 blocks, widths 16/32/64, 64-d output):
+    the backbone used for CIFAR-100 by TOPIC, CEC, FACT, SAVC and most FSCIL
+    papers. Lets the CIFAR results be compared at equal capacity."""
+
+    def __init__(self, out_dim=64):
+        super().__init__()
+        layers = [nn.Conv2d(3, 16, 3, 1, 1, bias=False), nn.BatchNorm2d(16), nn.ReLU(inplace=True)]
+        cin = 16
+        for cout, stride in [(16, 1), (32, 2), (64, 2)]:
+            for b in range(3):
+                layers.append(_BasicBlock(cin, cout, stride if b == 0 else 1))
+                cin = cout
+        layers.append(nn.AdaptiveAvgPool2d(1))
+        self.features = nn.Sequential(*layers)
+        self.out_dim = 64
+
+    def forward(self, x):
+        return self.features(x).flatten(1)     # (B, 64)
+
+    def freeze(self):
+        for p in self.parameters():
+            p.requires_grad = False
+        self.eval()
+
+
 def build_backbone(backbone_type, out_dim=512):
     """Factory: pick the backbone stem for the active dataset."""
     if backbone_type == "cifar_resnet18":
         return CifarResNet18(out_dim=out_dim)
+    if backbone_type == "cifar_resnet20":
+        return CifarResNet20()
     if backbone_type == "resnet18":
         return StandardResNet18(out_dim=out_dim, pretrained=False)
     if backbone_type == "resnet18_pretrained":

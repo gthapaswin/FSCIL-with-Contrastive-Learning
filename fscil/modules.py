@@ -28,7 +28,8 @@ from fscil.config import Config
 # and (b) the query feature at inference: z_hat_q = W_proj f_theta(x_q).
 # ---------------------------------------------------------------------------
 class Projection(nn.Module):
-    def __init__(self, in_dim=Config.backbone_out_dim, out_dim=Config.proj_dim):
+    def __init__(self, in_dim=None, out_dim=Config.proj_dim):
+        in_dim = in_dim or Config.backbone_out_dim   # resolved at runtime (ResNet-20 is 64-d)
         super().__init__()
         self.W_proj = nn.Linear(in_dim, out_dim, bias=False)
 
@@ -43,7 +44,8 @@ class Projection(nn.Module):
 # Stage 3's shot-averaging — not on the projected/pooled prototypes.
 # ---------------------------------------------------------------------------
 class SupConHead(nn.Module):
-    def __init__(self, in_dim=Config.backbone_out_dim, proj_dim=Config.supcon_proj_dim):
+    def __init__(self, in_dim=None, proj_dim=Config.supcon_proj_dim):
+        in_dim = in_dim or Config.backbone_out_dim   # resolved at runtime (ResNet-20 is 64-d)
         super().__init__()
         self.net = nn.Sequential(
             nn.Linear(in_dim, in_dim),

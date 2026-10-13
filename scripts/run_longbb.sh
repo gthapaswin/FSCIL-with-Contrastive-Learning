@@ -12,11 +12,13 @@ DS=$1; TAG=$2; EP=$3; shift 3
 EXTRA=("$@")
 
 CK="checkpoints/$DS/$TAG"
-SEED=""
+SEED=""; BACKBONE=""
 for ((i = 0; i < ${#EXTRA[@]}; i++)); do
   [ "${EXTRA[$i]}" = "--seed" ] && SEED="${EXTRA[$((i + 1))]}"
+  [ "${EXTRA[$i]}" = "--backbone" ] && BACKBONE="${EXTRA[$((i + 1))]}"
 done
 EVAL_ARGS=(--dataset "$DS" --tag "$TAG")
+[ -n "$BACKBONE" ] && EVAL_ARGS+=(--backbone "$BACKBONE")
 if [ -n "$SEED" ] && [ "$SEED" != "42" ]; then
   CK="$CK/seed$SEED"; EVAL_ARGS+=(--seed "$SEED")
 fi

@@ -316,6 +316,9 @@ def main():
                          help="Read/write under checkpoints/<ds>/<tag>/ (must match the training --tag).")
     parser.add_argument("--closer_lambda_close", type=float, default=None,
                          help="Must match the value used at training time (for the closer_lc<val>/ namespace).")
+    parser.add_argument("--backbone", type=str, default=None, choices=["resnet20"],
+                         help="Override the dataset's backbone (resnet20: the 64-d CIFAR ResNet-20 used by "
+                              "most FSCIL papers). Pair it with a distinct --tag.")
     parser.add_argument("--seed", type=int, default=None,
                          help="Must match the training --seed (reads/writes the seed<N>/ namespace).")
     parser.add_argument("--fuse", type=float, nargs="+", default=None,
@@ -332,6 +335,8 @@ def main():
     args = parser.parse_args()
 
     spec = Config.apply_dataset(args.dataset)
+    if args.backbone == "resnet20":
+        Config.backbone_type, Config.backbone_out_dim = "cifar_resnet20", 64
     ablations = Config.apply_ablation(args.ablate)
     if args.closer:
         Config.use_closer = True

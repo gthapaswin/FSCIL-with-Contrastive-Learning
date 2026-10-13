@@ -749,6 +749,9 @@ def main():
     parser.add_argument("--main_epochs", type=int, default=Config.main_epochs)
     parser.add_argument("--skip_backbone_pretrain", action="store_true",
                          help="Skip Phase A and load an existing checkpoint instead.")
+    parser.add_argument("--backbone", type=str, default=None, choices=["resnet20"],
+                         help="Override the dataset's backbone (resnet20: the 64-d CIFAR ResNet-20 used by "
+                              "most FSCIL papers). Pair it with a distinct --tag.")
     parser.add_argument("--seed", type=int, default=None,
                          help="Random seed (default Config.seed=42). A non-default seed namespaces the "
                               "run under seed<N>/ so seed-averaged runs never overwrite the baseline.")
@@ -763,6 +766,8 @@ def main():
         Config.main_early_stop_patience = args.main_patience
 
     spec = Config.apply_dataset(args.dataset)
+    if args.backbone == "resnet20":
+        Config.backbone_type, Config.backbone_out_dim = "cifar_resnet20", 64
     ds_dir = Config.ckpt_dir   # checkpoints/<ds>, before any namespacing
     ablations = Config.apply_ablation(args.ablate)
     if args.closer:
