@@ -1,0 +1,82 @@
+{
+  "dataset": "miniimagenet",
+  "results": [
+    {
+      "session": 0,
+      "num_classes_seen": 60,
+      "accuracy": 0.7308333516120911,
+      "acc_base": 0.7308333516120911,
+      "acc_novel": NaN,
+      "harmonic_mean": NaN
+    },
+    {
+      "session": 1,
+      "num_classes_seen": 65,
+      "accuracy": 0.6755384802818298,
+      "acc_base": 0.7298333048820496,
+      "acc_novel": 0.024000000208616257,
+      "harmonic_mean": 0.046471811078491895
+    },
+    {
+      "session": 2,
+      "num_classes_seen": 70,
+      "accuracy": 0.6258571147918701,
+      "acc_base": 0.7151666879653931,
+      "acc_novel": 0.09000000357627869,
+      "harmonic_mean": 0.15987994821613785
+    },
+    {
+      "session": 3,
+      "num_classes_seen": 75,
+      "accuracy": 0.5863999724388123,
+      "acc_base": 0.7064999938011169,
+      "acc_novel": 0.10599999874830246,
+      "harmonic_mean": 0.18434215174233137
+    },
+    {
+      "session": 4,
+      "num_classes_seen": 80,
+      "accuracy": 0.5504999756813049,
+      "acc_base": 0.7059999704360962,
+      "acc_novel": 0.08399999886751175,
+      "harmonic_mean": 0.1501367063833494
+    },
+    {
+      "session": 5,
+      "num_classes_seen": 85,
+      "accuracy": 0.5175294280052185,
+      "acc_base": 0.6921666860580444,
+      "acc_novel": 0.09839999675750732,
+      "harmonic_mean": 0.17230475592824043
+    },
+    {
+      "session": 6,
+      "num_classes_seen": 90,
+      "accuracy": 0.48811110854148865,
+      "acc_base": 0.690666675567627,
+      "acc_novel": 0.08299999684095383,
+      "harmonic_mean": 0.14819129202450915
+    },
+    {
+      "session": 7,
+      "num_classes_seen": 95,
+      "accuracy": 0.46210527420043945,
+      "acc_base": 0.674833357334137,
+      "acc_novel": 0.0974285677075386,
+      "harmonic_mean": 0.1702739583925141
+    },
+    {
+      "session": 8,
+      "num_classes_seen": 100,
+      "accuracy": 0.43939998745918274,
+      "acc_base": 0.6746666431427002,
+      "acc_novel": 0.08649999648332596,
+      "harmonic_mean": 0.1533400420384516
+    }
+  ],
+  "PD": 29.143336415290833,
+  "avg_accuracy": 56.403052144580414,
+  "A_B": 67.46666431427002,
+  "A_N": 8.649999648332596,
+  "harmonic_mean": 15.334004203845161
+}
