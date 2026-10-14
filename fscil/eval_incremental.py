@@ -241,6 +241,14 @@ def evaluate_cumulative(backbone, stag_model, full_test_ds, class_order, H, devi
     bias = (novel_mask.to(device).float() * Config.novel_logit_bias
             if (novel_mask is not None and Config.novel_logit_bias != 0.0) else 0.0)
 
+    if fuse is not None and os.environ.get("FSCIL_DUMP_SCORES"):
+        # diagnostic: raw head / NCM cosine scores (the last session overwrites)
+        np.savez_compressed(os.environ["FSCIL_DUMP_SCORES"],
+                            s_head=(F.normalize(z, dim=-1) @ F.normalize(H, dim=-1).T).cpu().numpy(),
+                            s_ncm=(fq @ F.normalize(R, dim=-1).T).cpu().numpy(),
+                            y=true_pos.cpu().numpy(), is_base=is_base.cpu().numpy(),
+                            novel_cols=novel_mask.numpy() if novel_mask is not None else None,
+                            inv_tau=stag_model.classifier.log_inv_tau.exp().item())
     if fuse is not None:
         novel_cols = (novel_mask.to(device) if novel_mask is not None
                       else torch.zeros(H.shape[0], dtype=torch.bool, device=device))
