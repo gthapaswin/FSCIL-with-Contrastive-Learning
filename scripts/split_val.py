@@ -25,6 +25,8 @@ p.add_argument("--seed", type=int, default=None)
 p.add_argument("--backbone", default=None, choices=["resnet20"])
 p.add_argument("--lam_base", type=float, default=1.0)
 p.add_argument("--lams", type=float, nargs="+", default=[0.0, 0.25, 0.5, 0.75, 1.0])
+p.add_argument("--biases", type=float, nargs="+", default=[0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0],
+               help="novel-logit biases tried for plain NCM (lam=1)")
 args = p.parse_args()
 
 spec = Config.apply_dataset(args.dataset)
@@ -55,6 +57,15 @@ out = {"lam_base": args.lam_base,
        "single": {str(k): v for k, v in single.items()},
        "split": {str(k[1]): v for k, v in split.items()}}
 out["selected_split_lam"] = float(max(split, key=lambda k: split[k]["hm"])[1])
+ncm = {}
+for b in args.biases:   # calibrated NCM: lam=1, novel-logit bias b
+    validator.bias[validator.n_seen:] = b
+    ncm[b] = validator(stag, [1.0])[1.0]
+    print(f"ncm    bias={b:g}: seen {ncm[b]['seen']*100:.2f} held {ncm[b]['held']*100:.2f} HM {ncm[b]['hm']*100:.2f}")
+validator.bias[validator.n_seen:] = Config.novel_logit_bias
+out["ncm_bias"] = {str(b): v for b, v in ncm.items()}
+out["selected_ncm_bias"] = float(max(ncm, key=lambda b: ncm[b]["hm"]))
+print("selected NCM bias:", out["selected_ncm_bias"])
 for name, d in [("single", single), ("split", split)]:
     for k, v in d.items():
         print(f"{name:6s} lam={k}: seen {v['seen']*100:.2f} held {v['held']*100:.2f} HM {v['hm']*100:.2f}")
