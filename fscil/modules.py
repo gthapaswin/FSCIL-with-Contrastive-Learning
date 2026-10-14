@@ -100,6 +100,11 @@ def supcon_loss_view(z, class_ids, view_ids, temperature=Config.supcon_temperatu
     return loss
 
 
+# rows per chunk for the O(K^2) pairwise stages; graphs up to this size run in
+# one pass, exactly as before chunking existed
+PAIR_CHUNK = 128
+
+
 # ---------------------------------------------------------------------------
 # Stage 4: Dynamic Topology Scorer g_phi -> A_ij = sigma(g_phi([h_i || h_j]))
 # ---------------------------------------------------------------------------
@@ -112,14 +117,18 @@ class TopologyScorer(nn.Module):
         self.out = nn.Linear(hidden, 1)
 
     def forward(self, h):
-        """h: (K, d') -> returns A: (K, K) soft adjacency in [0,1]."""
+        """h: (K, d') -> returns A: (K, K) soft adjacency in [0,1]. Large
+        graphs (faithful eval over every active class) run in row chunks so
+        the (K,K,2d') pair tensor never has to exist at once."""
         K = h.shape[0]
-        hi = h.unsqueeze(1).expand(K, K, -1)
-        hj = h.unsqueeze(0).expand(K, K, -1)
-        pair = torch.cat([hi, hj], dim=-1)                 # (K,K,2d')
-        hidden = self.dropout(F.relu(self.W_phi(pair)))
-        A = torch.sigmoid(self.out(hidden)).squeeze(-1)     # (K,K)
-        return A
+        rows = []
+        for s in range(0, K, PAIR_CHUNK):
+            hi = h[s:s + PAIR_CHUNK].unsqueeze(1).expand(-1, K, -1)
+            hj = h.unsqueeze(0).expand(hi.shape[0], K, -1)
+            pair = torch.cat([hi, hj], dim=-1)                 # (k,K,2d')
+            hidden = self.dropout(F.relu(self.W_phi(pair)))
+            rows.append(torch.sigmoid(self.out(hidden)).squeeze(-1))   # (k,K)
+        return torch.cat(rows, 0)
 
 
 def graph_topology_loss(A_soft, class_ids, eps=Config.graph_loss_eps):
@@ -169,18 +178,29 @@ class GATv2Layer(nn.Module):
         returns h': (K, d') enriched node features
         """
         K = h.shape[0]
-        hi = h.unsqueeze(1).expand(K, K, -1)
-        hj = h.unsqueeze(0).expand(K, K, -1)
+        e_rows = []
+        for s in range(0, K, PAIR_CHUNK):
+            k = min(PAIR_CHUNK, K - s)
+            hi = h[s:s + k].unsqueeze(1).expand(-1, K, -1)
+            hj = h.unsqueeze(0).expand(k, K, -1)
 
-        vi = view_ids.unsqueeze(1).expand(K, K)
-        vj = view_ids.unsqueeze(0).expand(K, K)
-        rel_idx = (vi * self.num_views + vj).long()
-        r_ij = self.view_rel_table(rel_idx)                 # (K,K,d_r)
+            vi = view_ids[s:s + k].unsqueeze(1).expand(k, K)
+            vj = view_ids.unsqueeze(0).expand(k, K)
+            rel_idx = (vi * self.num_views + vj).long()
+            r_ij = self.view_rel_table(rel_idx)                 # (k,K,d_r)
 
-        pair = torch.cat([hi, hj, A_soft.unsqueeze(-1), r_ij], dim=-1)  # (K,K,2d'+1+d_r)
-        gat_out = self.W_gat(pair)                                       # (K,K,attn_dim)
-        gat_act = torch.where(gat_out > 0, gat_out, self.attn_alpha * gat_out)  # PReLU, channel-last
-        e = self.a(gat_act).squeeze(-1)                                    # (K,K)
+            pair = torch.cat([hi, hj, A_soft[s:s + k].unsqueeze(-1), r_ij], dim=-1)  # (k,K,2d'+1+d_r)
+            gat_out = self.W_gat(pair)                                       # (k,K,attn_dim)
+            gat_act = torch.where(gat_out > 0, gat_out, self.attn_alpha * gat_out)  # PReLU, channel-last
+            e_rows.append(self.a(gat_act).squeeze(-1))                         # (k,K)
+        e = torch.cat(e_rows, 0)                                                  # (K,K)
+
+        if Config.faithful:
+            # Tech doc §3: the learned adjacency is a sparse mask -- node i
+            # aggregates only over N(i) = {j : A_ij >= threshold} (plus itself),
+            # restricting feature mixing to valid semantic paths.
+            keep = (A_soft >= Config.topology_threshold) | torch.eye(K, dtype=torch.bool, device=h.device)
+            e = e.masked_fill(~keep, float("-inf"))
 
         attn = F.softmax(e, dim=-1)                            # normalize over neighbors j
         v = self.W_v(h)                                          # (K, d')
@@ -201,6 +221,8 @@ class STIMemory(nn.Module):
     def __init__(self, dim=Config.proj_dim, kappa=Config.kappa, kappa0=Config.kappa0):
         super().__init__()
         self.Phi = nn.Linear(dim, dim)                     # memory adapter Phi(P_t) — distinct from W_n
+        # tech doc §4: Phi(P) = PReLU(P W + b); the original build had no activation
+        self.Phi_act = nn.PReLU(num_parameters=dim) if Config.faithful else nn.Identity()
         self.W_r1 = nn.Linear(dim, dim, bias=False)          # direct H_{t-1} term
         self.W_r2 = nn.Linear(dim, dim, bias=True)             # P_t term, carries shared bias b_r
         self.b_r = self.W_r2.bias
@@ -219,7 +241,7 @@ class STIMemory(nn.Module):
         new_class_mask: (C_t,) bool, True for classes with no prior memory
         Returns: H_t, R_gate, phi_p  (R_gate & phi_p exposed for L_stab)
         """
-        phi_p = self.Phi(P_t)                                                    # (C_t, d')
+        phi_p = self.Phi_act(self.Phi(P_t))                                      # (C_t, d')
         propagated_old = torch.matmul(A_tilde, H_prev)                            # (C_t, d')
 
         R_gate = torch.sigmoid(

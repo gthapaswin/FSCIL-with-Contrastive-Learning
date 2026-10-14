@@ -344,6 +344,8 @@ def run_episode(backbone, stag_model, sampler, device, optimizer=None):
       Stage 7:   STI memory update -> H_t  (+ L_graph, L_stab)
       Stage 8:   cosine classification of queries against H_t  (+ L_cls)
     """
+    if Config.faithful:
+        return run_episode_faithful(backbone, stag_model, sampler, device, optimizer)
     train_mode = optimizer is not None
     stag_model.train(train_mode)
 
@@ -411,6 +413,67 @@ def run_episode(backbone, stag_model, sampler, device, optimizer=None):
         optimizer.step()
 
     acc = (logits.argmax(1) == query_labels).float().mean().item()
+    return {
+        "loss": loss.item(), "supcon": l_supcon.item(), "graph": l_graph.item(),
+        "stab": l_stab.item(), "cls": l_cls.item(), "acc": acc,
+    }
+
+
+def run_episode_faithful(backbone, stag_model, sampler, device, optimizer=None):
+    """Tech-doc episode. The episode's classes arrive over
+    Config.faithful_sessions pseudo-sessions; every session re-runs the graph
+    over ALL active classes, gates the memory rows of the classes that already
+    have one (STI, §4) and classifies the queries of every active class. L_cls,
+    L_graph and L_stab are averaged over sessions, so the retention gate and
+    the age prior receive real gradients. SupCon acts on the projected nodes
+    h^(0) (§2)."""
+    train_mode = optimizer is not None
+    stag_model.train(train_mode)
+
+    support_imgs, support_labels, query_imgs, query_labels = sampler.sample_episode()
+    N, M, C, Hh, Ww = support_imgs.shape
+    support_labels, query_labels = support_labels.to(device), query_labels.to(device)
+    way = int(support_labels.max().item()) + 1
+    shot = N // way
+    with torch.no_grad():  # backbone always frozen
+        raw_feats = backbone(support_imgs.to(device).view(N * M, C, Hh, Ww)).view(N, M, -1)
+        query_feats = backbone(query_imgs.to(device))
+
+    w_cm = raw_feats.view(way, shot, M, -1).mean(dim=1)                     # (way, M, 512)
+    R_all = raw_class_means(raw_feats.view(way, shot, M, -1)[:, :, 0])
+    groups = torch.arange(way).chunk(min(Config.faithful_sessions, way))
+    ages = torch.cat([torch.full((len(g),), float(t)) for t, g in enumerate(groups)]).to(device)
+    z_q = stag_model.projection(query_feats)
+
+    H = torch.zeros(0, Config.proj_dim, device=device)
+    l_cls = l_graph = l_stab = 0.0
+    n_active = 0
+    for t, g in enumerate(groups):
+        n_active += len(g)
+        H, aux = stag_model.session_step(H, w_cm[:n_active], ages[:n_active], session=t)
+        qm = query_labels < n_active
+        if Config.use_heldout:
+            logits = fused_logits(stag_model, z_q[qm], H, query_feats[qm], R_all[:n_active],
+                                  Config.residual_lambda)
+        else:
+            logits = stag_model.classify_query(z_q[qm], H)
+        l_cls = l_cls + F.cross_entropy(logits, query_labels[qm], label_smoothing=Config.label_smoothing)
+        l_graph = l_graph + stag_model.graph_loss(aux["A"], aux["cid"])
+        l_stab = l_stab + stag_model.stability_loss(aux["P"], aux["phi"], aux["R_gate"])
+    S = len(groups)
+    l_cls, l_graph, l_stab = l_cls / S, l_graph / S, l_stab / S
+    l_supcon = stag_model.supcon_on_nodes(aux["h0"], aux["cid"])   # last session: all classes
+
+    loss = (Config.lambda_cls * l_cls
+            + Config.lambda_supcon * l_supcon
+            + Config.lambda_graph * l_graph
+            + Config.lambda_stab * l_stab)
+    if train_mode:
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+
+    acc = (logits.argmax(1) == query_labels[qm]).float().mean().item()   # final session, all classes
     return {
         "loss": loss.item(), "supcon": l_supcon.item(), "graph": l_graph.item(),
         "stab": l_stab.item(), "cls": l_cls.item(), "acc": acc,
@@ -527,17 +590,38 @@ class HeldoutValidator:
             Rs.append(torch.stack([F.normalize(F.normalize(f[:, 0], dim=-1).mean(0), dim=-1) for f in g]))
         return torch.cat(Hs), torch.cat(Rs)
 
+    def _sessions(self, stag_model, draw):
+        """Faithful (tech doc §4): seen classes are session 0, each group of
+        held-out classes a later session; every session re-runs the graph over
+        all active classes and gates the existing memory rows."""
+        dev, g = self.device, Config.heldout_val_held_way
+        feats = self.seen + draw
+        w = torch.stack([f.mean(0) for f in feats])                            # (C, M, 512)
+        R = torch.stack([F.normalize(F.normalize(f[:, 0], dim=-1).mean(0), dim=-1) for f in feats])
+        sizes = [self.n_seen] + [len(draw[s:s + g]) for s in range(0, len(draw), g)]
+        ages = torch.cat([torch.full((n,), float(t)) for t, n in enumerate(sizes)]).to(dev)
+        H = torch.zeros(0, Config.proj_dim, device=dev)
+        n = 0
+        for t, k in enumerate(sizes):
+            n += k
+            H, _ = stag_model.session_step(H, w[:n], ages[:n], session=t)
+        return H, R
+
     @torch.no_grad()
     def __call__(self, stag_model, lams):
         """Returns {lam: {"seen", "held", "hm"}} averaged over the support draws."""
         stag_model.eval()
-        H_s, R_s = self._prototypes(stag_model, self.seen, Config.episode_way)
+        if not Config.faithful:
+            H_s, R_s = self._prototypes(stag_model, self.seen, Config.episode_way)
         z_q = stag_model.projection(self.f_q)
         is_seen = self.y < self.n_seen
         acc = {lam: [] for lam in lams}
         for draw in self.held_draws:
-            H_h, R_h = self._prototypes(stag_model, draw, Config.heldout_val_held_way)
-            H, R = torch.cat([H_s, H_h]), torch.cat([R_s, R_h])
+            if Config.faithful:
+                H, R = self._sessions(stag_model, draw)
+            else:
+                H_h, R_h = self._prototypes(stag_model, draw, Config.heldout_val_held_way)
+                H, R = torch.cat([H_s, H_h]), torch.cat([R_s, R_h])
             novel = torch.arange(len(H), device=self.device) >= self.n_seen
             for lam in lams:
                 lv = split_lams(lam, novel)
@@ -771,6 +855,12 @@ def main():
                          choices=["none", "supcon", "topology", "agedecay"],
                          help="Disable STAG-STI components for the ablation study "
                               "(namespaces output under checkpoints/<ds>/ablate-...).")
+    parser.add_argument("--faithful", action="store_true",
+                         help="Technical-Document head: SupCon on W_proj nodes across views, sparse topology "
+                              "mask, PReLU Phi, STI over all active classes with pseudo-session episodes. "
+                              "Pair it with a distinct --tag.")
+    parser.add_argument("--residual_lambda", type=float, default=None,
+                         help="With --heldout: training-time NCM weight (default 0.5; 0 trains the head alone).")
     parser.add_argument("--backbone_epochs", type=int, default=Config.backbone_pretrain_epochs)
     parser.add_argument("--main_epochs", type=int, default=Config.main_epochs)
     parser.add_argument("--skip_backbone_pretrain", action="store_true",
@@ -794,6 +884,9 @@ def main():
     spec = Config.apply_dataset(args.dataset)
     if args.backbone == "resnet20":
         Config.backbone_type, Config.backbone_out_dim = "cifar_resnet20", 64
+    Config.faithful = args.faithful
+    if args.residual_lambda is not None:
+        Config.residual_lambda = args.residual_lambda
     ds_dir = Config.ckpt_dir   # checkpoints/<ds>, before any namespacing
     ablations = Config.apply_ablation(args.ablate)
     if args.closer:

@@ -65,8 +65,10 @@ def raw_prototypes(f):
     return F.normalize(F.normalize(f, dim=-1).mean(1), dim=-1)
 
 
-def _prototypes_one_group(backbone, stag_model, full_train_ds, per_class_indices, device, M):
-    """Build prototypes for a small group of classes in a single graph."""
+def _prototypes_one_group(backbone, stag_model, full_train_ds, per_class_indices, device, M, return_w=False):
+    """Build prototypes for a small group of classes in a single graph.
+    return_w: stop before the graph and return the view means (way, M, d) and
+    raw means instead (faithful mode runs the graph over all active classes)."""
     per_class_views = []
     for idxs in per_class_indices:
         shot_views = [make_fantasy_views(full_train_ds.get_pil(i), M) for i in idxs]  # each (M,3,H,W)
@@ -78,6 +80,8 @@ def _prototypes_one_group(backbone, stag_model, full_train_ds, per_class_indices
         flat = support_imgs.view(way * shot * M, *support_imgs.shape[-3:])
         feats = backbone(flat).view(way, shot, M, -1)      # (way, shot, M, 512)
         w_cm = feats.mean(dim=1)                              # (way, M, 512) -- Stage 3 shot-averaging
+    if return_w:
+        return w_cm, raw_prototypes(feats[:, :, 0])
 
     class_ids = torch.arange(way, device=device).unsqueeze(1).expand(way, M).reshape(-1)
     view_ids = torch.arange(M, device=device).unsqueeze(0).expand(way, M).reshape(-1)
@@ -89,7 +93,7 @@ def _prototypes_one_group(backbone, stag_model, full_train_ds, per_class_indices
     return P_new, A_tilde_new, raw_prototypes(feats[:, :, 0])
 
 
-def _prototypes_from_indices(backbone, stag_model, full_train_ds, per_class_indices, device, M):
+def _prototypes_from_indices(backbone, stag_model, full_train_ds, per_class_indices, device, M, return_w=False):
     """per_class_indices: list (one entry per class, in class order) of the
     sample indices to use as that class's support shots. Runs Stages 1-6.
 
@@ -103,6 +107,10 @@ def _prototypes_from_indices(backbone, stag_model, full_train_ds, per_class_indi
     placeholder for brand-new classes."""
     n = len(per_class_indices)
     chunk = max(1, int(getattr(Config, "episode_way", 15)))
+    if return_w:
+        parts = [_prototypes_one_group(backbone, stag_model, full_train_ds, per_class_indices[s:s + chunk],
+                                       device, M, return_w=True) for s in range(0, n, chunk)]
+        return torch.cat([p[0] for p in parts]), torch.cat([p[1] for p in parts])
     if n <= chunk:
         return _prototypes_one_group(backbone, stag_model, full_train_ds, per_class_indices, device, M)
     P_parts, R_parts = [], []
@@ -115,7 +123,8 @@ def _prototypes_from_indices(backbone, stag_model, full_train_ds, per_class_indi
     return P_new, A_tilde_new, torch.cat(R_parts, dim=0)
 
 
-def build_new_class_prototypes(backbone, stag_model, full_train_ds, class_list, device, shot, M, rng):
+def build_new_class_prototypes(backbone, stag_model, full_train_ds, class_list, device, shot, M, rng,
+                               return_w=False):
     """Random k-shot support (used for the base session). class_list: GLOBAL
     labels introduced this session. Returns P_new, A_tilde_new."""
     per_class_indices = []
@@ -123,10 +132,12 @@ def build_new_class_prototypes(backbone, stag_model, full_train_ds, class_list, 
         idxs = full_train_ds.indices_for_class(c)
         chosen = rng.sample(idxs, shot) if len(idxs) >= shot else [rng.choice(idxs) for _ in range(shot)]
         per_class_indices.append(chosen)
-    return _prototypes_from_indices(backbone, stag_model, full_train_ds, per_class_indices, device, M)
+    return _prototypes_from_indices(backbone, stag_model, full_train_ds, per_class_indices, device, M,
+                                    return_w)
 
 
-def build_new_class_prototypes_official(backbone, stag_model, full_train_ds, refs, class_list, device, M):
+def build_new_class_prototypes_official(backbone, stag_model, full_train_ds, refs, class_list, device, M,
+                                        return_w=False):
     """Reproducible support using the EXACT few-shot samples from the official
     split file (fscil.datasets.official_session_refs). `refs` are grouped by
     class and ordered to match `class_list`."""
@@ -135,11 +146,13 @@ def build_new_class_prototypes_official(backbone, stag_model, full_train_ds, ref
         idx = full_train_ds.index_for_ref(ref)
         by_class[full_train_ds.targets[idx]].append(idx)
     per_class_indices = [by_class[c] for c in class_list]
-    return _prototypes_from_indices(backbone, stag_model, full_train_ds, per_class_indices, device, M)
+    return _prototypes_from_indices(backbone, stag_model, full_train_ds, per_class_indices, device, M,
+                                    return_w)
 
 
 @torch.no_grad()
-def build_base_prototypes(backbone, stag_model, full_train_ds, class_list, device, M, cap, rng, batch=256):
+def build_base_prototypes(backbone, stag_model, full_train_ds, class_list, device, M, cap, rng, batch=256,
+                          return_w=False):
     """Base-session prototypes from up to `cap` training samples per class
     (standard FSCIL: base classes use abundant data; only novel classes are
     5-shot). Feature extraction is batched per class; the graph runs in
@@ -159,6 +172,8 @@ def build_base_prototypes(backbone, stag_model, full_train_ds, class_list, devic
         w_list.append(fc.mean(0))                                            # (M, d) shot-averaged
         r_list.append(raw_prototypes(fc[None, :, 0])[0])
     w_cm_all = torch.stack(w_list, 0)                                        # (C, M, d)
+    if return_w:
+        return w_cm_all, torch.stack(r_list, 0)
 
     chunk = max(1, int(getattr(Config, "episode_way", 15)))
     P_parts = []
@@ -354,7 +369,10 @@ def main():
                          help="Path to STAG-STI checkpoint. Defaults to checkpoints/stag_sti_session0.pt "
                               "(final-epoch). Pass checkpoints/stag_sti_session0_best.pt to use the "
                               "best-val checkpoint instead.")
+    parser.add_argument("--faithful", action="store_true",
+                         help="Evaluate a --faithful (Technical-Document) head: STI over all active classes.")
     args = parser.parse_args()
+    Config.faithful = args.faithful
     if args.novel_bias is not None:
         Config.novel_logit_bias = args.novel_bias
 
@@ -422,8 +440,41 @@ def main():
           f"= {spec.way}-way {shot}-shot) ===")
 
     use_official = not args.random_support
+    W = torch.zeros(0, Config.num_views, Config.backbone_out_dim, device=device)   # faithful: view means
+    ages = torch.zeros(0, device=device)
     for session_idx, class_list in enumerate(all_sessions):
         t0 = time.time()
+        if Config.faithful:
+            # Tech doc §4: keep every class's view means, re-run the graph over
+            # ALL active classes each session and gate the old memory rows.
+            if session_idx == 0 and args.full_base:
+                w_new, R_new = build_base_prototypes(backbone, stag_model, full_train_ds, class_list, device,
+                                                     M=Config.num_views, cap=Config.base_proto_cap, rng=rng,
+                                                     return_w=True)
+            elif use_official and session_idx >= 1:
+                refs = official_session_refs(spec, plan, session_idx)
+                w_new, R_new = build_new_class_prototypes_official(
+                    backbone, stag_model, full_train_ds, refs, class_list, device, M=Config.num_views,
+                    return_w=True)
+            else:
+                w_new, R_new = build_new_class_prototypes(
+                    backbone, stag_model, full_train_ds, class_list, device, shot=shot,
+                    M=Config.num_views, rng=rng, return_w=True)
+            W = torch.cat([W, w_new])
+            ages = torch.cat([ages, torch.full((len(class_list),), float(session_idx), device=device)])
+            with torch.no_grad():
+                H, _ = stag_model.session_step(H, W, ages, session=session_idx)
+            R = torch.cat([R, R_new], dim=0)
+            class_order.extend(class_list)
+            novel_mask = torch.tensor([c not in base_set for c in class_order], dtype=torch.bool)
+            ms = evaluate_cumulative(backbone, stag_model, full_test_ds, class_order, H, device,
+                                     novel_mask=novel_mask, base_set=base_set,
+                                     transductive=args.transductive, R=R, fuse=args.fuse,
+                                     fuse_base=args.fuse_base)
+            if args.fuse is None:
+                ms = [ms]
+            record(runs, lams, ms, session_idx, class_order, class_list, t0)
+            continue
         # Incremental sessions (>=1) use the exact official few-shot samples for
         # reproducibility; the base session builds its prototypes from a random
         # k-shot draw of the abundant base training data.
@@ -455,25 +506,29 @@ def main():
                                  fuse_base=args.fuse_base)
         if args.fuse is None:
             ms = [ms]
-        for lam, m in zip(lams, ms):
-            acc, acc_base, acc_novel = m["acc"], m["acc_base"], m["acc_novel"]
-            hm = (2 * acc_base * acc_novel / (acc_base + acc_novel)
-                  if (acc_base == acc_base and acc_novel == acc_novel and (acc_base + acc_novel) > 0)
-                  else float("nan"))
-            runs[lam].append({
-                "session": session_idx, "num_classes_seen": len(class_order),
-                "accuracy": acc, "acc_base": acc_base, "acc_novel": acc_novel, "harmonic_mean": hm,
-            })
-
-            label = "Session 0 (base)" if session_idx == 0 else f"Session {session_idx} (+{len(class_list)} novel)"
-            label += "" if lam is None else f" lam={lam:g}"
-            extra = "" if session_idx == 0 else (f" | A_B={acc_base*100:.2f}% A_N={acc_novel*100:.2f}% "
-                                                 f"HM={hm*100:.2f}%")
-            print(f"[{label}] classes_seen={len(class_order):3d} | cumulative_test_acc={acc*100:.2f}%{extra} "
-                  f"| {time.time()-t0:.1f}s")
+        record(runs, lams, ms, session_idx, class_order, class_list, t0)
 
     for lam in lams:
         save_summary(runs[lam], spec, args, lam)
+
+
+def record(runs, lams, ms, session_idx, class_order, class_list, t0):
+    for lam, m in zip(lams, ms):
+        acc, acc_base, acc_novel = m["acc"], m["acc_base"], m["acc_novel"]
+        hm = (2 * acc_base * acc_novel / (acc_base + acc_novel)
+              if (acc_base == acc_base and acc_novel == acc_novel and (acc_base + acc_novel) > 0)
+              else float("nan"))
+        runs[lam].append({
+            "session": session_idx, "num_classes_seen": len(class_order),
+            "accuracy": acc, "acc_base": acc_base, "acc_novel": acc_novel, "harmonic_mean": hm,
+        })
+
+        label = "Session 0 (base)" if session_idx == 0 else f"Session {session_idx} (+{len(class_list)} novel)"
+        label += "" if lam is None else f" lam={lam:g}"
+        extra = "" if session_idx == 0 else (f" | A_B={acc_base*100:.2f}% A_N={acc_novel*100:.2f}% "
+                                             f"HM={hm*100:.2f}%")
+        print(f"[{label}] classes_seen={len(class_order):3d} | cumulative_test_acc={acc*100:.2f}%{extra} "
+              f"| {time.time()-t0:.1f}s")
 
 
 def save_summary(results, spec, args, lam=None):

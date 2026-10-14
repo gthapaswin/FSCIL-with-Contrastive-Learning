@@ -148,6 +148,22 @@ class Config:
     heldout_queries = 50          # test images per class used as validation queries
     heldout_lams = (0.0, 0.25, 0.5, 0.75, 1.0)   # fusion weights tried for selecting lam
 
+    # ---------------- Faithful Technical-Document variant (--faithful) ----------------
+    # Off by default so every earlier checkpoint/result reproduces unchanged.
+    # On, the head follows the Technical Document literally:
+    #   §2 SupCon pre-conditions W_proj: it acts on the projected nodes h^(0)
+    #      and pulls ALL fantasy views of a class together (P(i) = same class,
+    #      A(i) = every other node) instead of a detached raw-feature head;
+    #   §3 the learned adjacency is a sparse mask: node i attends only to
+    #      N(i) = {j : A_ij >= topology_threshold} plus itself;
+    #   §4 Phi(P) = PReLU(P W + b), and STI runs every session over ALL active
+    #      classes, so old classes' memory rows are re-gated (Gamma, beta) as
+    #      new classes arrive; episodic training simulates faithful_sessions
+    #      pseudo-sessions per episode so the gate is trained.
+    faithful = False
+    faithful_sessions = 3         # pseudo-sessions per training episode (episode_way split evenly)
+    topology_threshold = 0.5      # A_ij >= this -> j is in the neighbourhood N(i)
+
     # ---------------- Ablations (slide-17 component study) ----------------
     # Set via Config.apply_ablation([...]). Each disables one STAG-STI piece:
     #   supcon   -> no contrastive pre-conditioning (lambda_supcon = 0)
