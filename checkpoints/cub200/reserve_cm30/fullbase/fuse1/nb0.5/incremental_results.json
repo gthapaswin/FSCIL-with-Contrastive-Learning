@@ -1,0 +1,98 @@
+{
+  "dataset": "cub200",
+  "results": [
+    {
+      "session": 0,
+      "num_classes_seen": 100,
+      "accuracy": 0.7887569665908813,
+      "acc_base": 0.7887569665908813,
+      "acc_novel": NaN,
+      "harmonic_mean": NaN
+    },
+    {
+      "session": 1,
+      "num_classes_seen": 110,
+      "accuracy": 0.7464206218719482,
+      "acc_base": 0.7566340565681458,
+      "acc_novel": 0.6415770649909973,
+      "harmonic_mean": 0.6943716149874575
+    },
+    {
+      "session": 2,
+      "num_classes_seen": 120,
+      "accuracy": 0.7151603698730469,
+      "acc_base": 0.7458100318908691,
+      "acc_novel": 0.5600706934928894,
+      "harmonic_mean": 0.6397312306639978
+    },
+    {
+      "session": 3,
+      "num_classes_seen": 130,
+      "accuracy": 0.6738197207450867,
+      "acc_base": 0.7426676154136658,
+      "acc_novel": 0.44560185074806213,
+      "harmonic_mean": 0.5570017127309373
+    },
+    {
+      "session": 4,
+      "num_classes_seen": 140,
+      "accuracy": 0.6559086441993713,
+      "acc_base": 0.7318435907363892,
+      "acc_novel": 0.469072163105011,
+      "harmonic_mean": 0.5717094726473094
+    },
+    {
+      "session": 5,
+      "num_classes_seen": 150,
+      "accuracy": 0.6312991380691528,
+      "acc_base": 0.7269552946090698,
+      "acc_novel": 0.44391244649887085,
+      "harmonic_mean": 0.5512228102208342
+    },
+    {
+      "session": 6,
+      "num_classes_seen": 160,
+      "accuracy": 0.616168200969696,
+      "acc_base": 0.7164804339408875,
+      "acc_novel": 0.4519999921321869,
+      "harmonic_mean": 0.5543082165141792
+    },
+    {
+      "session": 7,
+      "num_classes_seen": 170,
+      "accuracy": 0.5990633368492126,
+      "acc_base": 0.7119413614273071,
+      "acc_novel": 0.44113337993621826,
+      "harmonic_mean": 0.5447367595814987
+    },
+    {
+      "session": 8,
+      "num_classes_seen": 180,
+      "accuracy": 0.5737610459327698,
+      "acc_base": 0.7070530652999878,
+      "acc_novel": 0.4107600450515747,
+      "harmonic_mean": 0.5196381152930553
+    },
+    {
+      "session": 9,
+      "num_classes_seen": 190,
+      "accuracy": 0.569166362285614,
+      "acc_base": 0.7028631567955017,
+      "acc_novel": 0.42357414960861206,
+      "harmonic_mean": 0.5285951774471378
+    },
+    {
+      "session": 10,
+      "num_classes_seen": 200,
+      "accuracy": 0.5591991543769836,
+      "acc_base": 0.6976256966590881,
+      "acc_novel": 0.4238907992839813,
+      "harmonic_mean": 0.5273522328518232
+    }
+  ],
+  "PD": 22.95578122138977,
+  "avg_accuracy": 64.80657783421603,
+  "A_B": 69.76256966590881,
+  "A_N": 42.38907992839813,
+  "harmonic_mean": 52.73522328518232
+}
