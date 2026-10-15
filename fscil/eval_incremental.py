@@ -65,6 +65,14 @@ def raw_prototypes(f):
     return F.normalize(F.normalize(f, dim=-1).mean(1), dim=-1)
 
 
+def teen_calibrate(R_novel, R_base, alpha, tau=16.0):
+    """TEEN (Wang et al., NeurIPS 2023): pull each novel prototype towards the
+    base prototypes it resembles, c_n <- alpha c_n + (1-alpha) sum_b w_bn c_b,
+    w_bn = softmax_b(tau cos(c_b, c_n)). Prototypes are re-normalised."""
+    w = torch.softmax(tau * F.normalize(R_novel, dim=-1) @ F.normalize(R_base, dim=-1).T, dim=1)
+    return F.normalize(alpha * R_novel + (1 - alpha) * w @ R_base, dim=-1)
+
+
 def _prototypes_one_group(backbone, stag_model, full_train_ds, per_class_indices, device, M, return_w=False):
     """Build prototypes for a small group of classes in a single graph.
     return_w: stop before the graph and return the view means (way, M, d) and
@@ -356,6 +364,10 @@ def main():
     parser.add_argument("--fuse", type=float, nargs="+", default=None,
                          help="Residual weights lam: score = (1-lam) STAG-STI cosine + lam raw-feature "
                               "NCM cosine. One run evaluates every lam; each writes to fuse<lam>/.")
+    parser.add_argument("--teen", type=float, default=None,
+                         help="TEEN calibration of the novel NCM prototypes with this alpha "
+                              "(raw-feature branch; use with --fuse 1). Writes to teen<alpha>/.")
+    parser.add_argument("--teen_tau", type=float, default=16.0)
     parser.add_argument("--novel_bias", type=float, default=None,
                          help="Override Config.novel_logit_bias (writes to a nb<val>/ subdir).")
     parser.add_argument("--fuse_base", type=float, default=None,
@@ -494,6 +506,8 @@ def main():
                 M=Config.num_views, rng=rng,
             )
         H_new_rows = write_new_memory_rows(stag_model, P_new, A_tilde_new, session_idx, device)
+        if args.teen is not None and session_idx >= 1:
+            R_new = teen_calibrate(R_new, R[:len(base_classes)], args.teen, args.teen_tau)
 
         H = torch.cat([H, H_new_rows], dim=0)
         R = torch.cat([R, R_new], dim=0)
@@ -555,6 +569,8 @@ def save_summary(results, spec, args, lam=None):
     if lam is not None:
         out_dir = os.path.join(out_dir, f"fuse{lam:g}" + ("" if args.fuse_base is None
                                                           else f"_base{args.fuse_base:g}"))
+    if args.teen is not None:
+        out_dir = os.path.join(out_dir, f"teen{args.teen:g}")
     if args.novel_bias is not None:
         out_dir = os.path.join(out_dir, f"nb{args.novel_bias:g}")
     if args.transductive:
